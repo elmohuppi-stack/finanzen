@@ -130,6 +130,118 @@ class DashboardApiTest extends TestCase
         $response->assertJsonPath('imports.0.period_to', '2026-04-04');
     }
 
+    public function test_dashboard_returns_stored_balance_snapshots_for_accounts_and_months(): void
+    {
+        $user = User::factory()->create();
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+            'current_balance' => '11256.27',
+            'metadata' => [
+                'balance_as_of' => '2026-04-04',
+            ],
+        ]);
+
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-03-10',
+            'value_date' => '2026-03-10',
+            'amount' => '-100.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Supermarkt',
+            'description' => 'März Einkauf',
+            'transaction_hash' => hash('sha256', 'march-balance-check'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-02',
+            'value_date' => '2026-04-02',
+            'amount' => '-31.04',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'REWE',
+            'description' => 'April Einkauf',
+            'transaction_hash' => hash('sha256', 'april-balance-check'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/dashboard?view=all');
+
+        $response->assertOk();
+        $response->assertJsonPath('summary.total_balance', '11256.27');
+        $response->assertJsonPath('summary.balance_as_of', '2026-04-04');
+        $response->assertJsonPath('accounts.0.current_balance', '11256.27');
+        $response->assertJsonPath('accounts.0.balance_as_of', '2026-04-04');
+        $response->assertJsonPath('monthly_balances.2.opening_balance', '11387.31');
+        $response->assertJsonPath('monthly_balances.2.closing_balance', '11287.31');
+        $response->assertJsonPath('monthly_balances.3.opening_balance', '11287.31');
+        $response->assertJsonPath('monthly_balances.3.closing_balance', '11256.27');
+    }
+
+    public function test_dashboard_can_select_any_available_year_for_balance_development(): void
+    {
+        $user = User::factory()->create();
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+            'current_balance' => '2500.00',
+            'metadata' => [
+                'balance_as_of' => '2026-04-04',
+            ],
+        ]);
+
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2025-06-10',
+            'value_date' => '2025-06-10',
+            'amount' => '-50.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Altjahr',
+            'description' => '2025 Test',
+            'transaction_hash' => hash('sha256', 'year-2025'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-02',
+            'value_date' => '2026-04-02',
+            'amount' => '-25.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Aktuell',
+            'description' => '2026 Test',
+            'transaction_hash' => hash('sha256', 'year-2026'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/dashboard?view=all&year=2025');
+
+        $response->assertOk();
+        $response->assertJsonPath('filters.selected_year', 2025);
+        $response->assertJsonPath('filters.available_years.0', 2026);
+        $response->assertJsonPath('filters.available_years.1', 2025);
+        $response->assertJsonPath('monthly_balances.5.month', '2025-06');
+        $response->assertJsonPath('monthly_balances.5.expenses', '50.00');
+        $response->assertJsonPath('monthly_balances.5.closing_balance', '2525.00');
+    }
+
     public function test_dashboard_can_filter_transactions_by_account_and_search_term(): void
     {
         $user = User::factory()->create();

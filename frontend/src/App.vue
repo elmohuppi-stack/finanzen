@@ -58,15 +58,17 @@ watch(theme, (value) => {
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Finanzen MVP</p>
-        <h1>Persönliche Finanzübersicht</h1>
+        <p class="eyebrow">Finanzen</p>
+        <h1>Finanzcockpit</h1>
       </div>
 
       <div class="nav-block">
         <nav>
           <RouterLink to="/">Dashboard</RouterLink>
-          <RouterLink to="/imports/preview">Import-Vorschau</RouterLink>
-          <RouterLink to="/about">Projektstatus</RouterLink>
+          <RouterLink to="/transactions">Buchungen</RouterLink>
+          <RouterLink to="/analysis">Auswertung</RouterLink>
+          <RouterLink to="/imports">Import</RouterLink>
+          <RouterLink to="/help">Hilfe</RouterLink>
           <RouterLink v-if="!authStore.isAuthenticated" to="/login">Login</RouterLink>
           <div v-else class="user-menu">
             <button class="nav-action user-menu__trigger" type="button" @click="toggleUserMenu">

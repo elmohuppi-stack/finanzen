@@ -12,13 +12,13 @@ interface DashboardResponse {
     income: string
     expenses: string
     net: string
+    total_balance: string
+    balance_as_of: string | null
+    balance_year: number
   }
   filters: {
-    selected_view: 'month' | 'all'
-    selected_month: string | null
-    selected_account_id: number | null
-    search_query: string
-    available_months: string[]
+    selected_year: number
+    available_years: number[]
   }
   accounts: Array<{
     id: number
@@ -28,28 +28,21 @@ interface DashboardResponse {
     currency: string
     transaction_count: number
     booked_balance: string
-  }>
-  categories: Array<{
-    id: number
-    name: string
-    category_type: string
-    color: string | null
-    is_system: boolean
+    current_balance: string
+    balance_as_of: string | null
+    statement_period_from: string | null
+    statement_period_to: string | null
   }>
   transactions: Array<{
     id: number
     booking_date: string | null
-    value_date: string | null
-    counterparty_name: string | null
-    description: string | null
     amount: string
     currency: string
     direction: string
-    source_system: string
-    account_name: string | null
+    counterparty_name: string | null
+    description: string | null
     category_id: number | null
     category_name: string | null
-    category_color: string | null
   }>
   imports: Array<{
     id: number
@@ -63,7 +56,15 @@ interface DashboardResponse {
     period_from: string | null
     period_to: string | null
     account_name: string | null
-    account_type: string | null
+  }>
+  monthly_balances: Array<{
+    month: string
+    label: string
+    income: string
+    expenses: string
+    net: string
+    opening_balance: string | null
+    closing_balance: string | null
   }>
 }
 
@@ -71,45 +72,140 @@ const authStore = useAuthStore()
 const dashboard = ref<DashboardResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
-const viewMode = ref<'month' | 'all'>('month')
-const selectedMonth = ref(new Date().toISOString().slice(0, 7))
-const searchQuery = ref('')
-const selectedAccountId = ref('')
-const categoryDrafts = ref<Record<number, string>>({})
-const savingTransactionId = ref<number | null>(null)
+const fallbackYear = new Date().getFullYear()
+const selectedYear = ref<number | null>(null)
 
 const welcomeName = computed(() => (authStore.user?.name ? `, ${authStore.user.name}` : ''))
-const availableMonths = computed(() => dashboard.value?.filters.available_months ?? [])
-const currentMonthIndex = computed(() => availableMonths.value.indexOf(selectedMonth.value))
-const canGoToNewerMonth = computed(() => currentMonthIndex.value > 0)
-const canGoToOlderMonth = computed(
-  () => currentMonthIndex.value >= 0 && currentMonthIndex.value < availableMonths.value.length - 1,
-)
-const periodLabel = computed(() => {
-  if (viewMode.value === 'all') {
-    return 'Alle Umsätze'
+const totalBalance = computed(() => {
+  return (dashboard.value?.accounts ?? [])
+    .filter((account) => showsPrimaryBalance(account.account_type))
+    .reduce((sum, account) => sum + Number(account.current_balance), 0)
+})
+const totalBalanceDate = computed(() => {
+  const dates = (dashboard.value?.accounts ?? [])
+    .filter((account) => showsPrimaryBalance(account.account_type) && account.balance_as_of)
+    .map((account) => account.balance_as_of as string)
+
+  return dates.sort().at(-1) ?? null
+})
+const availableYears = computed(() => {
+  return dashboard.value?.filters.available_years?.length
+    ? dashboard.value.filters.available_years
+    : [fallbackYear]
+})
+const balanceYear = computed(() => {
+  return selectedYear.value ?? dashboard.value?.filters.selected_year ?? fallbackYear
+})
+const uncategorizedCount = computed(() => {
+  return (dashboard.value?.transactions ?? []).filter((transaction) => !transaction.category_id)
+    .length
+})
+const primaryAccountsCount = computed(() => {
+  return (dashboard.value?.accounts ?? []).filter((account) =>
+    showsPrimaryBalance(account.account_type),
+  ).length
+})
+const monthlyRows = computed(() => dashboard.value?.monthly_balances ?? [])
+const chartRows = computed(() => {
+  return monthlyRows.value.filter((row) => {
+    return row.opening_balance !== null || row.closing_balance !== null || Number(row.net) !== 0
+  })
+})
+const chartLayout = {
+  width: 1000,
+  height: 240,
+  left: 84,
+  right: 968,
+  top: 16,
+  bottom: 186,
+}
+const chartMinBalance = computed(() => {
+  const values = chartRows.value
+    .map((row) => row.closing_balance)
+    .filter((value): value is string => value !== null)
+    .map((value) => Number(value))
+
+  return values.length ? Math.min(...values) : 0
+})
+const chartMaxBalance = computed(() => {
+  const values = chartRows.value
+    .map((row) => row.closing_balance)
+    .filter((value): value is string => value !== null)
+    .map((value) => Number(value))
+
+  return values.length ? Math.max(...values) : 1
+})
+const chartRange = computed(() => {
+  return Math.max(1, chartMaxBalance.value - chartMinBalance.value)
+})
+const chartPadding = computed(() => Math.max(250, chartRange.value * 0.12))
+const plottedMinBalance = computed(() => chartMinBalance.value - chartPadding.value)
+const plottedMaxBalance = computed(() => chartMaxBalance.value + chartPadding.value)
+const plottedRange = computed(() => {
+  return Math.max(1, plottedMaxBalance.value - plottedMinBalance.value)
+})
+const chartPoints = computed(() => {
+  return chartRows.value.map((row, index) => {
+    const value = Number(row.closing_balance ?? row.opening_balance ?? 0)
+    const x =
+      chartRows.value.length === 1
+        ? (chartLayout.left + chartLayout.right) / 2
+        : chartLayout.left +
+          (index / (chartRows.value.length - 1)) * (chartLayout.right - chartLayout.left)
+    const y =
+      chartLayout.bottom -
+      ((value - plottedMinBalance.value) / plottedRange.value) *
+        (chartLayout.bottom - chartLayout.top)
+
+    return {
+      key: row.month,
+      x: Number(x.toFixed(2)),
+      y: Number(y.toFixed(2)),
+      shortLabel: row.label.slice(0, 3),
+      value: row.closing_balance,
+    }
+  })
+})
+const chartTicks = computed(() => {
+  return Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4
+    const value = plottedMaxBalance.value - ratio * plottedRange.value
+    const y = chartLayout.top + ratio * (chartLayout.bottom - chartLayout.top)
+
+    return {
+      label: formatAxisMoney(value),
+      y: Number(y.toFixed(2)),
+    }
+  })
+})
+const lineChartPath = computed(() => buildSmoothPath(chartPoints.value))
+const lineAreaPath = computed(() => {
+  if (!chartPoints.value.length || !lineChartPath.value) {
+    return ''
   }
 
-  const monthValue = selectedMonth.value
+  const firstPoint = chartPoints.value[0]
+  const lastPoint = chartPoints.value[chartPoints.value.length - 1]
 
-  if (!monthValue || !/^\d{4}-\d{2}$/.test(monthValue)) {
-    return 'Monat'
+  if (!firstPoint || !lastPoint) {
+    return ''
   }
 
-  const [yearPart, monthPart] = monthValue.split('-')
-  const year = Number(yearPart)
-  const month = Number(monthPart)
-
-  return new Intl.DateTimeFormat('de-DE', {
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date(year, month - 1, 1))
+  return `${lineChartPath.value} L ${lastPoint.x} ${chartLayout.bottom} L ${firstPoint.x} ${chartLayout.bottom} Z`
 })
 
-function formatMoney(amount: string, currency = 'EUR') {
+function formatMoney(amount: number | string, currency = 'EUR') {
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency,
+  }).format(Number(amount))
+}
+
+function formatAxisMoney(amount: number | string) {
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
   }).format(Number(amount))
 }
 
@@ -118,7 +214,9 @@ function formatDate(value: string | null) {
     return '—'
   }
 
-  return new Intl.DateTimeFormat('de-DE').format(new Date(value))
+  return new Intl.DateTimeFormat('de-DE', {
+    dateStyle: 'medium',
+  }).format(new Date(value))
 }
 
 function formatDateTime(value: string | null) {
@@ -130,19 +228,6 @@ function formatDateTime(value: string | null) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
-}
-
-function formatSourceType(sourceType: string) {
-  switch (sourceType) {
-    case 'dkb_giro':
-      return 'DKB Giro'
-    case 'dkb_visa':
-      return 'DKB Visa'
-    case 'paypal':
-      return 'PayPal'
-    default:
-      return sourceType
-  }
 }
 
 function formatPeriod(from: string | null, to: string | null) {
@@ -157,16 +242,64 @@ function formatPeriod(from: string | null, to: string | null) {
   return from ?? to ?? '—'
 }
 
-function syncCategoryDrafts(response: DashboardResponse) {
-  categoryDrafts.value = Object.fromEntries(
-    response.transactions.map((transaction) => [
-      transaction.id,
-      transaction.category_id ? String(transaction.category_id) : '',
-    ]),
-  )
+function formatAccountType(accountType: string) {
+  switch (accountType) {
+    case 'checking_account':
+      return 'Girokonto'
+    case 'credit_card':
+      return 'Kreditkarte'
+    case 'paypal_account':
+      return 'PayPal'
+    case 'cash_wallet':
+      return 'Bargeld'
+    case 'savings_account':
+      return 'Tagesgeld'
+    default:
+      return accountType
+  }
 }
 
-async function loadDashboard() {
+function showsPrimaryBalance(accountType: string) {
+  return accountType === 'checking_account' || accountType === 'cash_wallet'
+}
+
+function buildSmoothPath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) {
+    return ''
+  }
+
+  const firstPoint = points[0]
+
+  if (!firstPoint) {
+    return ''
+  }
+
+  if (points.length === 1) {
+    return `M ${firstPoint.x} ${firstPoint.y}`
+  }
+
+  let path = `M ${firstPoint.x} ${firstPoint.y}`
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index]
+    const next = points[index + 1]
+
+    if (!current || !next) {
+      continue
+    }
+
+    const controlX = current.x + (next.x - current.x) / 2
+    path += ` C ${controlX} ${current.y}, ${controlX} ${next.y}, ${next.x} ${next.y}`
+  }
+
+  return path
+}
+
+async function changeBalanceYear() {
+  await loadDashboardOverview()
+}
+
+async function loadDashboardOverview() {
   if (!authStore.token) {
     dashboard.value = null
     return
@@ -176,18 +309,10 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const params = new URLSearchParams({ view: viewMode.value })
+    const params = new URLSearchParams({ view: 'all' })
 
-    if (viewMode.value === 'month' && selectedMonth.value) {
-      params.set('month', selectedMonth.value)
-    }
-
-    if (searchQuery.value.trim()) {
-      params.set('query', searchQuery.value.trim())
-    }
-
-    if (selectedAccountId.value) {
-      params.set('account_id', selectedAccountId.value)
+    if (selectedYear.value) {
+      params.set('year', String(selectedYear.value))
     }
 
     const response = await apiFetch<DashboardResponse>(
@@ -195,107 +320,14 @@ async function loadDashboard() {
       {},
       authStore.token,
     )
+
     dashboard.value = response
-    syncCategoryDrafts(response)
-
-    if (response.filters.selected_month) {
-      selectedMonth.value = response.filters.selected_month
-    }
-
-    searchQuery.value = response.filters.search_query ?? ''
-    selectedAccountId.value = response.filters.selected_account_id
-      ? String(response.filters.selected_account_id)
-      : ''
+    selectedYear.value = response.filters.selected_year
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Dashboard konnte nicht geladen werden.'
   } finally {
     loading.value = false
   }
-}
-
-async function showMonthlyView() {
-  viewMode.value = 'month'
-
-  if (!selectedMonth.value) {
-    selectedMonth.value = availableMonths.value[0] ?? new Date().toISOString().slice(0, 7)
-  }
-
-  await loadDashboard()
-}
-
-async function showAllView() {
-  viewMode.value = 'all'
-  await loadDashboard()
-}
-
-async function applyTransactionFilters() {
-  await loadDashboard()
-}
-
-async function resetTransactionFilters() {
-  searchQuery.value = ''
-  selectedAccountId.value = ''
-  await loadDashboard()
-}
-
-async function saveCategory(transactionId: number) {
-  if (!authStore.token) {
-    return
-  }
-
-  savingTransactionId.value = transactionId
-  error.value = ''
-
-  try {
-    const rawValue = categoryDrafts.value[transactionId] ?? ''
-
-    await apiFetch(
-      `/api/transactions/${transactionId}/category`,
-      {
-        method: 'PATCH',
-        body: JSON.stringify({
-          category_id: rawValue ? Number(rawValue) : null,
-        }),
-      },
-      authStore.token,
-    )
-
-    await loadDashboard()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Kategorie konnte nicht gespeichert werden.'
-  } finally {
-    savingTransactionId.value = null
-  }
-}
-
-async function goToNewerMonth() {
-  if (!canGoToNewerMonth.value) {
-    return
-  }
-
-  const nextMonth = availableMonths.value[currentMonthIndex.value - 1]
-
-  if (!nextMonth) {
-    return
-  }
-
-  selectedMonth.value = nextMonth
-  await loadDashboard()
-}
-
-async function goToOlderMonth() {
-  if (!canGoToOlderMonth.value) {
-    return
-  }
-
-  const previousMonth = availableMonths.value[currentMonthIndex.value + 1]
-
-  if (!previousMonth) {
-    return
-  }
-
-  selectedMonth.value = previousMonth
-  await loadDashboard()
 }
 
 watch(
@@ -306,290 +338,188 @@ watch(
       return
     }
 
-    await loadDashboard()
+    await loadDashboardOverview()
   },
   { immediate: true },
 )
 </script>
 
 <template>
-  <section class="grid">
+  <section class="dashboard-stack">
     <article class="hero card">
-      <p class="label">{{ authStore.isAuthenticated ? 'Dein Überblick' : 'Aktueller Stand' }}</p>
-      <h2 v-if="authStore.isAuthenticated">Willkommen zurück{{ welcomeName }}.</h2>
-      <h2 v-else>Das Grundgerüst für die Finanz-App steht.</h2>
-      <p v-if="authStore.isAuthenticated">
-        Hier siehst du jetzt deine importierten Konten und die letzten Umsätze auf einen Blick.
-      </p>
-      <p v-else>
-        Laravel und Vue sind eingerichtet. Melde dich an und importiere deine erste CSV-Datei, um
-        echte Finanzdaten im Dashboard zu sehen.
-      </p>
+      <div class="hero-copy">
+        <p class="label">Dashboard</p>
+        <h2 v-if="authStore.isAuthenticated">Guter Überblick{{ welcomeName }}.</h2>
+        <h2 v-else>Dein Finanzcockpit für Konten, Buchungen und Auswertung.</h2>
+        <p v-if="authStore.isAuthenticated">
+          Hier siehst du die wichtigsten Kennzahlen, Kontostände und die Entwicklung im laufenden
+          Jahr auf einen Blick.
+        </p>
+        <p v-else>
+          Melde dich an und importiere deine ersten CSV-Dateien, um dein persönliches Dashboard zu
+          füllen.
+        </p>
 
-      <div class="hero-actions">
-        <RouterLink
-          class="link-button"
-          :to="authStore.isAuthenticated ? '/imports/preview' : '/login'"
-        >
-          {{ authStore.isAuthenticated ? 'Neue CSV importieren' : 'Anmelden' }}
-        </RouterLink>
+        <div class="hero-actions">
+          <RouterLink
+            class="link-button"
+            :to="authStore.isAuthenticated ? '/transactions' : '/login'"
+          >
+            {{ authStore.isAuthenticated ? 'Zu den Buchungen' : 'Anmelden' }}
+          </RouterLink>
+          <RouterLink v-if="authStore.isAuthenticated" class="ghost-link" to="/imports">
+            Import öffnen
+          </RouterLink>
+        </div>
+      </div>
+
+      <div v-if="authStore.isAuthenticated && dashboard" class="hero-highlight">
+        <span class="hero-highlight__label">Primärer Kontostand</span>
+        <strong :class="totalBalance >= 0 ? 'positive' : 'negative'">{{
+          formatMoney(totalBalance)
+        }}</strong>
+        <span>
+          {{
+            totalBalanceDate
+              ? `Stand ${formatDate(totalBalanceDate)}`
+              : 'Wird aus importierten Buchungen abgeleitet'
+          }}
+        </span>
       </div>
     </article>
 
-    <template v-if="authStore.isAuthenticated">
-      <article v-if="loading" class="card">
-        <h3>Dashboard wird geladen…</h3>
-      </article>
+    <article v-if="loading && !dashboard" class="card">
+      <p>Dashboard wird geladen…</p>
+    </article>
 
-      <article v-else-if="error" class="card warning">
-        <h3>Dashboard konnte nicht geladen werden</h3>
-        <p>{{ error }}</p>
-      </article>
+    <article v-else-if="error && !dashboard" class="card warning">
+      <p>{{ error }}</p>
+    </article>
 
-      <template v-else-if="dashboard">
-        <article class="card stat-card">
-          <p class="label">Konten</p>
-          <strong>{{ dashboard.summary.account_count }}</strong>
-        </article>
-
-        <article class="card stat-card">
-          <p class="label">Buchungen</p>
-          <strong>{{ dashboard.summary.transaction_count }}</strong>
-        </article>
-
-        <article class="card stat-card">
-          <p class="label">Einnahmen</p>
-          <strong class="positive">{{ formatMoney(dashboard.summary.income) }}</strong>
-        </article>
-
-        <article class="card stat-card">
-          <p class="label">Ausgaben</p>
-          <strong class="negative">{{ formatMoney(dashboard.summary.expenses) }}</strong>
-        </article>
-
-        <article class="card stat-card stat-card--wide">
-          <p class="label">Netto</p>
-          <strong :class="Number(dashboard.summary.net) >= 0 ? 'positive' : 'negative'">
-            {{ formatMoney(dashboard.summary.net) }}
-          </strong>
-        </article>
-
-        <article class="card">
-          <h3>Konten</h3>
-          <ul v-if="dashboard.accounts.length" class="account-list">
-            <li v-for="account in dashboard.accounts" :key="account.id" class="account-row">
-              <div>
-                <strong>{{ account.name }}</strong>
-                <p>
-                  {{ account.institution || 'Ohne Institut' }} ·
-                  {{ account.transaction_count }} Buchungen
-                </p>
-              </div>
-              <span>{{ formatMoney(account.booked_balance, account.currency) }}</span>
-            </li>
-          </ul>
-          <p v-else>Noch keine Konten vorhanden.</p>
-        </article>
-
-        <article class="card transactions-card">
-          <div class="section-header">
-            <div>
-              <h3>Umsätze</h3>
-              <p class="muted">Zeitraum: {{ periodLabel }}</p>
-            </div>
-            <div class="toolbar">
-              <button
-                type="button"
-                class="filter-button"
-                :class="{ 'is-active': viewMode === 'month' }"
-                @click="showMonthlyView"
-              >
-                Monat
-              </button>
-              <button
-                type="button"
-                class="filter-button"
-                :class="{ 'is-active': viewMode === 'all' }"
-                @click="showAllView"
-              >
-                Alle
-              </button>
-              <RouterLink class="text-link" to="/imports/preview">Weiter importieren</RouterLink>
-            </div>
+    <template v-else-if="authStore.isAuthenticated && dashboard">
+      <article class="card section-card">
+        <div class="section-header">
+          <div>
+            <h3>Saldoentwicklung {{ balanceYear }}</h3>
+            <p class="muted">Monatliche Übersicht mit Anfangssaldo, Endsaldo und Netto-Bewegung.</p>
           </div>
-
-          <form class="filters-form" @submit.prevent="applyTransactionFilters">
-            <label class="filter-field">
-              <span>Suche</span>
-              <input
-                v-model="searchQuery"
-                type="search"
-                placeholder="Gegenstelle oder Beschreibung"
-              />
-            </label>
-
-            <label class="filter-field">
-              <span>Konto</span>
-              <select v-model="selectedAccountId">
-                <option value="">Alle Konten</option>
-                <option
-                  v-for="account in dashboard.accounts"
-                  :key="account.id"
-                  :value="String(account.id)"
-                >
-                  {{ account.name }}
+          <div class="section-actions">
+            <label class="year-picker">
+              <span>Jahr</span>
+              <select v-model.number="selectedYear" :disabled="loading" @change="changeBalanceYear">
+                <option v-for="year in availableYears" :key="year" :value="year">
+                  {{ year }}
                 </option>
               </select>
             </label>
+            <RouterLink class="text-link" to="/analysis">Mehr Analysen</RouterLink>
+          </div>
+        </div>
 
-            <div class="filter-actions">
-              <button type="submit" class="filter-button is-active">Filter anwenden</button>
-              <button type="button" class="secondary-button" @click="resetTransactionFilters">
-                Zurücksetzen
-              </button>
-            </div>
-          </form>
+        <p v-if="loading" class="muted inline-status">Saldoentwicklung wird aktualisiert…</p>
 
-          <div v-if="viewMode === 'month' && availableMonths.length" class="month-nav">
-            <button
-              type="button"
-              class="secondary-button"
-              :disabled="!canGoToNewerMonth"
-              @click="goToNewerMonth"
+        <div v-if="chartRows.length" class="balance-visual">
+          <svg
+            class="line-chart"
+            :viewBox="`0 0 ${chartLayout.width} ${chartLayout.height}`"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <rect
+              :x="chartLayout.left"
+              :y="chartLayout.top"
+              :width="chartLayout.right - chartLayout.left"
+              :height="chartLayout.bottom - chartLayout.top"
+              class="chart-surface"
+            />
+
+            <g v-for="tick in chartTicks" :key="tick.label">
+              <line
+                :x1="chartLayout.left"
+                :y1="tick.y"
+                :x2="chartLayout.right"
+                :y2="tick.y"
+                class="chart-grid"
+              />
+              <text :x="chartLayout.left - 10" :y="tick.y + 4" class="chart-tick" text-anchor="end">
+                {{ tick.label }}
+              </text>
+            </g>
+
+            <line
+              :x1="chartLayout.left"
+              :y1="chartLayout.top"
+              :x2="chartLayout.left"
+              :y2="chartLayout.bottom"
+              class="chart-axis"
+            />
+            <line
+              :x1="chartLayout.left"
+              :y1="chartLayout.bottom"
+              :x2="chartLayout.right"
+              :y2="chartLayout.bottom"
+              class="chart-axis"
+            />
+            <path v-if="lineAreaPath" :d="lineAreaPath" class="chart-area" />
+            <path v-if="lineChartPath" :d="lineChartPath" class="chart-line" />
+
+            <circle
+              v-for="point in chartPoints"
+              :key="point.key"
+              :cx="point.x"
+              :cy="point.y"
+              r="4.2"
+              class="chart-point"
+            />
+
+            <text
+              v-for="point in chartPoints"
+              :key="`${point.key}-x`"
+              :x="point.x"
+              :y="chartLayout.bottom + 24"
+              class="chart-x-label"
+              text-anchor="middle"
             >
-              ← Neuer
-            </button>
-            <strong>{{ periodLabel }}</strong>
-            <button
-              type="button"
-              class="secondary-button"
-              :disabled="!canGoToOlderMonth"
-              @click="goToOlderMonth"
-            >
-              Älter →
-            </button>
-          </div>
+              {{ point.shortLabel }}
+            </text>
+          </svg>
+        </div>
 
-          <div v-if="dashboard.transactions.length" class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Datum</th>
-                  <th>Gegenstelle</th>
-                  <th>Beschreibung</th>
-                  <th>Konto</th>
-                  <th>Kategorie</th>
-                  <th>Betrag</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="transaction in dashboard.transactions" :key="transaction.id">
-                  <td>{{ formatDate(transaction.booking_date) }}</td>
-                  <td>{{ transaction.counterparty_name || '—' }}</td>
-                  <td>{{ transaction.description || '—' }}</td>
-                  <td>{{ transaction.account_name || '—' }}</td>
-                  <td>
-                    <div class="category-editor">
-                      <select v-model="categoryDrafts[transaction.id]" class="category-select">
-                        <option value="">Ohne Kategorie</option>
-                        <option
-                          v-for="category in dashboard.categories"
-                          :key="category.id"
-                          :value="String(category.id)"
-                        >
-                          {{ category.name }}
-                        </option>
-                      </select>
-                      <button
-                        type="button"
-                        class="secondary-button compact-button"
-                        :disabled="savingTransactionId === transaction.id"
-                        @click="saveCategory(transaction.id)"
-                      >
-                        {{ savingTransactionId === transaction.id ? 'Speichert…' : 'Speichern' }}
-                      </button>
-                    </div>
-                  </td>
-                  <td :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
-                    {{ formatMoney(transaction.amount, transaction.currency) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else>Für diesen Zeitraum sind noch keine Umsätze vorhanden.</p>
-        </article>
-
-        <article class="card transactions-card">
-          <div class="section-header">
-            <div>
-              <h3>CSV-Importe</h3>
-              <p class="muted">Wann du welche Datei für welchen Zeitraum importiert hast.</p>
-            </div>
-            <RouterLink class="text-link" to="/imports/preview">Neuen Import starten</RouterLink>
-          </div>
-
-          <div v-if="dashboard.imports.length" class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Importiert am</th>
-                  <th>Quelle</th>
-                  <th>Datei</th>
-                  <th>Konto</th>
-                  <th>Zeitraum</th>
-                  <th>Ergebnis</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="entry in dashboard.imports" :key="entry.id">
-                  <td>{{ formatDateTime(entry.imported_at) }}</td>
-                  <td>{{ formatSourceType(entry.source_type) }}</td>
-                  <td>{{ entry.file_name }}</td>
-                  <td>{{ entry.account_name || '—' }}</td>
-                  <td>{{ formatPeriod(entry.period_from, entry.period_to) }}</td>
-                  <td>
-                    {{ entry.imported_rows }} neu · {{ entry.skipped_rows }} übersprungen ·
-                    {{ entry.error_rows }} Fehler
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else>Noch keine CSV-Importe vorhanden.</p>
-        </article>
-      </template>
-    </template>
-
-    <template v-else>
-      <article class="card">
-        <h3>Datenquellen</h3>
-        <ul>
-          <li>Girokonto</li>
-          <li>Visa 1 &amp; Visa 2</li>
-          <li>PayPal</li>
-          <li>Bargeld-Wallet</li>
-        </ul>
-      </article>
-
-      <article class="card">
-        <h3>MVP-Funktionen</h3>
-        <ul>
-          <li>CSV-Import mit Dubletten-Schutz</li>
-          <li>Importierte Umsätze im Dashboard</li>
-          <li>Visa-Abrechnung als Transfer statt Blackbox</li>
-          <li>Splitbare Buchungen mit Kategorien</li>
-        </ul>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Monat</th>
+                <th>Anfang</th>
+                <th>Einnahmen</th>
+                <th>Ausgaben</th>
+                <th>Netto</th>
+                <th>Ende</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in monthlyRows" :key="row.month">
+                <td>{{ row.label }}</td>
+                <td>{{ row.opening_balance ? formatMoney(row.opening_balance) : '—' }}</td>
+                <td class="positive">{{ formatMoney(row.income) }}</td>
+                <td class="negative">{{ formatMoney(row.expenses) }}</td>
+                <td :class="Number(row.net) >= 0 ? 'positive' : 'negative'">
+                  {{ formatMoney(row.net) }}
+                </td>
+                <td>{{ row.closing_balance ? formatMoney(row.closing_balance) : '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </article>
     </template>
   </section>
 </template>
 
 <style scoped>
-.grid {
+.dashboard-stack {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .card {
@@ -599,30 +529,79 @@ watch(
   background: var(--color-surface);
   color: var(--color-text);
   box-shadow: var(--shadow-elevated);
-  backdrop-filter: blur(10px);
 }
 
 .hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.8fr);
+  gap: 1rem;
+  align-items: center;
   background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface));
 }
 
+.hero-copy {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.hero-highlight {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-strong);
+}
+
+.hero-highlight__label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent-strong);
+}
+
+.hero-highlight strong {
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.hero-highlight span:last-child {
+  color: var(--color-text-muted);
+}
+
 .hero-actions {
-  margin-top: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
 }
 
 .link-button,
+.ghost-link,
 .text-link {
   text-decoration: none;
 }
 
-.link-button {
+.link-button,
+.ghost-link {
   display: inline-flex;
   align-items: center;
   border-radius: 12px;
-  background: var(--color-accent-strong);
-  color: white;
   padding: 0.75rem 0.95rem;
   font-weight: 700;
+}
+
+.link-button {
+  background: var(--color-accent-strong);
+  color: white;
+}
+
+.ghost-link {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  color: var(--color-text);
 }
 
 .text-link {
@@ -630,169 +609,246 @@ watch(
   font-weight: 700;
 }
 
-.toolbar {
+.label {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--color-accent-strong);
+}
+
+.stats-grid,
+.content-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.stats-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.content-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.content-grid--focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.section-card {
+  border-color: var(--color-border-hover);
+}
+
+.compact-card {
+  padding-top: 1rem;
+}
+
+.mini-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.mini-stat {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-strong);
+}
+
+.mini-stat span {
+  display: block;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.mini-stat strong {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.35rem;
+}
+
+.stat-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--color-surface-strong), var(--color-surface));
+}
+
+.stat-card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--color-accent-strong);
+  opacity: 0.85;
+}
+
+.stat-card--featured {
+  background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface-strong));
+}
+
+.accounts-table td:first-child strong {
+  display: inline-block;
+  min-width: 10rem;
+}
+
+.account-name-cell {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.filters-form {
+.account-badge,
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.account-badge {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  color: var(--color-text-muted);
+}
+
+.account-badge.is-primary,
+.type-pill {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.accounts-table .is-primary-row td {
+  background: var(--color-background-soft);
+}
+
+.table-note,
+.stat-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+}
+
+.balance-visual {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem;
+  gap: 0.65rem;
   margin-bottom: 1rem;
 }
 
-.filter-field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.filter-field span {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--color-text-muted);
-}
-
-.filter-field input,
-.filter-field select {
+.line-chart {
   width: 100%;
+  height: 230px;
+  display: block;
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--color-surface-strong);
-  color: var(--color-text);
-  padding: 0.7rem 0.85rem;
 }
 
-.filter-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: end;
-  flex-wrap: wrap;
+.chart-surface {
+  fill: color-mix(in srgb, var(--color-background-soft) 72%, transparent);
 }
 
-.category-editor {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
+.chart-grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
 }
 
-.category-select {
-  min-width: 180px;
+.chart-axis {
+  stroke: var(--color-border-hover);
+  stroke-width: 1.3;
 }
 
-.compact-button {
-  padding: 0.45rem 0.75rem;
-  font-size: 0.9rem;
-}
-
-.filter-button,
-.secondary-button {
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface-strong);
-  color: var(--color-text);
-  padding: 0.55rem 0.85rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.filter-button.is-active {
-  background: var(--color-accent-strong);
-  color: white;
-  border-color: transparent;
-}
-
-.secondary-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.label {
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--color-accent-strong);
-}
-
-h2,
-h3 {
-  margin-top: 0;
-}
-
-p,
-ul {
-  color: var(--color-text);
-}
-
-ul {
-  padding-left: 1.1rem;
-  margin-bottom: 0;
-}
-
-li::marker {
-  color: var(--color-accent-strong);
-}
-
-.stat-card strong {
-  font-size: 1.8rem;
-}
-
-.stat-card--wide {
-  grid-column: span 2;
-}
-
-.account-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.account-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
-  padding: 0.8rem 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.account-row:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.account-row p {
-  margin: 0.2rem 0 0;
+.chart-tick,
+.chart-x-label,
+.muted {
+  fill: var(--color-text-muted);
   color: var(--color-text-muted);
 }
 
-.transactions-card {
-  grid-column: 1 / -1;
+.chart-tick {
+  font-size: 10px;
+}
+
+.chart-x-label {
+  font-size: 11px;
+}
+
+.chart-area {
+  fill: color-mix(in srgb, var(--color-accent-soft) 68%, transparent);
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--color-accent-strong);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-point {
+  fill: var(--color-surface-strong);
+  stroke: var(--color-accent-strong);
+  stroke-width: 3;
+}
+
+.inline-status {
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--color-text-muted);
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  align-items: start;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.section-actions {
+  display: flex;
+  gap: 0.75rem;
   align-items: center;
   flex-wrap: wrap;
 }
 
-.month-nav {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
+.year-picker {
+  display: inline-grid;
+  gap: 0.25rem;
+}
+
+.year-picker span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.year-picker select {
+  min-width: 6.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-strong);
+  padding: 0.45rem 0.65rem;
 }
 
 .table-wrapper {
   overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-strong);
 }
 
 table {
@@ -802,43 +858,47 @@ table {
 
 th,
 td {
-  padding: 0.7rem;
+  padding: 0.78rem 0.9rem;
   text-align: left;
   border-bottom: 1px solid var(--color-border);
-  vertical-align: top;
 }
 
-.warning {
-  border-color: var(--color-warning);
-  background: var(--color-warning-soft);
-}
-
-.muted {
+th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--color-text-muted);
+  background: var(--color-background-soft);
+}
+
+tbody tr:hover td {
+  background: var(--color-background-soft);
+}
+
+.warning,
+.negative {
+  color: var(--color-danger);
 }
 
 .positive {
   color: #059669;
 }
 
-.negative {
-  color: var(--color-danger);
+.stat-card strong {
+  font-size: 1.8rem;
 }
 
-@media (max-width: 720px) {
-  .stat-card--wide {
-    grid-column: auto;
-  }
-
-  .account-row {
-    align-items: start;
-    flex-direction: column;
-  }
-}
-
-@media (min-width: 900px) {
+@media (max-width: 820px) {
   .hero {
-    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+  }
+
+  .hero-highlight strong {
+    font-size: 1.6rem;
+  }
+
+  .line-chart {
+    height: 180px;
   }
 }
 </style>

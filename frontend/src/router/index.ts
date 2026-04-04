@@ -6,23 +6,39 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      name: 'home',
+      alias: '/dashboard',
+      name: 'dashboard',
       component: HomeView,
     },
     {
-      path: '/imports/preview',
-      name: 'import-preview',
+      path: '/transactions',
+      name: 'transactions',
+      component: () => import('../views/TransactionsView.vue'),
+    },
+    {
+      path: '/analysis',
+      name: 'analysis',
+      component: () => import('../views/AnalysisView.vue'),
+    },
+    {
+      path: '/imports',
+      alias: '/imports/preview',
+      name: 'imports',
       component: () => import('../views/ImportPreviewView.vue'),
+    },
+    {
+      path: '/help',
+      name: 'help',
+      component: () => import('../views/HelpView.vue'),
+    },
+    {
+      path: '/about',
+      redirect: '/help',
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
-    },
-    {
-      path: '/about',
-      name: 'about',
-      component: () => import('../views/AboutView.vue'),
     },
   ],
 })

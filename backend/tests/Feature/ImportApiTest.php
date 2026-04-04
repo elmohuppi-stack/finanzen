@@ -79,6 +79,33 @@ CSV;
         ]);
     }
 
+    public function test_import_stores_account_balance_from_csv_header(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $content = <<<'CSV'
+"Girokonto";"DE86120300000016478885"
+"Zeitraum:";"01.01.2026 - 04.04.2026"
+"Kontostand vom 04.04.2026:";"11.256,27 €"
+""
+"Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
+"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE27700202700015820743";"-31,04";"";"";"56006389643387010426134430"
+CSV;
+
+        $file = UploadedFile::fake()->createWithContent('giro-balance.csv', $content);
+
+        $this->postJson('/api/imports', [
+            'file' => $file,
+        ])->assertCreated();
+
+        $account = Account::query()->firstOrFail()->fresh();
+
+        $this->assertSame('11256.27', $account->current_balance);
+        $this->assertSame('2026-04-04', data_get($account->metadata, 'balance_as_of'));
+        $this->assertSame('2026-01-01', data_get($account->metadata, 'statement_period_from'));
+        $this->assertSame('2026-04-04', data_get($account->metadata, 'statement_period_to'));
+    }
+
     public function test_reimport_of_the_same_csv_is_duplicate_safe(): void
     {
         Sanctum::actingAs(User::factory()->create());

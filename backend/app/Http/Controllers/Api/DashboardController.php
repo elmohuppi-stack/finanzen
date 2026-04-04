@@ -19,6 +19,7 @@ class DashboardController extends Controller
         $validated = $request->validate([
             'view' => ['nullable', 'in:month,all'],
             'month' => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
+            'year' => ['nullable', 'integer', 'between:2000,2100'],
             'account_id' => ['nullable', 'integer'],
             'query' => ['nullable', 'string', 'max:120'],
         ]);
@@ -28,13 +29,15 @@ class DashboardController extends Controller
         $selectedAccountId = isset($validated['account_id']) ? (int) $validated['account_id'] : null;
         $searchQuery = trim((string) ($validated['query'] ?? ''));
 
-        $baseTransactionQuery = Transaction::query()
+        $accountScopedTransactionQuery = Transaction::query()
             ->visibleInCashflow()
             ->whereHas('account', fn($query) => $query->where('user_id', $user->id));
 
         if ($selectedAccountId !== null) {
-            $baseTransactionQuery->where('account_id', $selectedAccountId);
+            $accountScopedTransactionQuery->where('account_id', $selectedAccountId);
         }
+
+        $baseTransactionQuery = clone $accountScopedTransactionQuery;
 
         if ($searchQuery !== '') {
             $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $searchQuery) . '%';
@@ -48,12 +51,17 @@ class DashboardController extends Controller
             });
         }
 
-        $availableMonths = (clone $baseTransactionQuery)
-            ->orderByDesc('booking_date')
+        $balanceTransactions = (clone $accountScopedTransactionQuery)
+            ->orderBy('booking_date')
+            ->orderBy('id')
+            ->get(['id', 'account_id', 'booking_date', 'amount']);
+
+        $availableMonths = $balanceTransactions
             ->pluck('booking_date')
             ->map(static fn($date): string => substr((string) $date, 0, 7))
             ->filter()
             ->unique()
+            ->sortDesc()
             ->values();
 
         $selectedMonth = $validated['month'] ?? ($availableMonths->first() ?: now()->format('Y-m'));
@@ -77,12 +85,42 @@ class DashboardController extends Controller
 
         $expenses = abs($expenseSum);
 
-        $accounts = Account::query()
+        $accountModels = Account::query()
             ->where('user_id', $user->id)
             ->withCount('transactions')
             ->withSum('transactions as booked_balance', 'amount')
             ->orderBy('name')
-            ->get()
+            ->get();
+
+        $balanceDates = $accountModels
+            ->map(fn(Account $account): ?string => data_get($account->metadata, 'balance_as_of'))
+            ->filter()
+            ->values();
+
+        $availableYears = $balanceTransactions
+            ->pluck('booking_date')
+            ->map(static fn($date): ?int => $date ? (int) substr((string) $date, 0, 4) : null)
+            ->merge($balanceDates->map(static fn(string $date): int => (int) substr($date, 0, 4)))
+            ->filter()
+            ->unique()
+            ->sortDesc()
+            ->values();
+
+        $summaryBalanceAsOf = $balanceDates->max();
+        $selectedYear = isset($validated['year'])
+            ? (int) $validated['year']
+            : ($availableYears->first() ?: (int) now()->format('Y'));
+
+        $totalBalance = $accountModels->reduce(function (float $sum, Account $account): float {
+            $hasStoredSnapshot = data_get($account->metadata, 'balance_as_of') !== null;
+            $balance = $hasStoredSnapshot
+                ? (float) ($account->current_balance ?? 0)
+                : (float) ($account->booked_balance ?? 0);
+
+            return $sum + $balance;
+        }, 0.0);
+
+        $accounts = $accountModels
             ->map(fn(Account $account): array => [
                 'id' => $account->id,
                 'name' => $account->name,
@@ -91,6 +129,10 @@ class DashboardController extends Controller
                 'currency' => $account->currency,
                 'transaction_count' => $account->transactions_count,
                 'booked_balance' => number_format((float) ($account->booked_balance ?? 0), 2, '.', ''),
+                'current_balance' => number_format((float) ($account->current_balance ?? $account->booked_balance ?? 0), 2, '.', ''),
+                'balance_as_of' => data_get($account->metadata, 'balance_as_of'),
+                'statement_period_from' => data_get($account->metadata, 'statement_period_from'),
+                'statement_period_to' => data_get($account->metadata, 'statement_period_to'),
             ])
             ->values();
 
@@ -174,6 +216,9 @@ class DashboardController extends Controller
                 'income' => number_format($income, 2, '.', ''),
                 'expenses' => number_format($expenses, 2, '.', ''),
                 'net' => number_format($income - $expenses, 2, '.', ''),
+                'total_balance' => number_format($totalBalance, 2, '.', ''),
+                'balance_as_of' => $summaryBalanceAsOf,
+                'balance_year' => $selectedYear,
             ],
             'filters' => [
                 'selected_view' => $selectedView,
@@ -181,12 +226,89 @@ class DashboardController extends Controller
                 'selected_account_id' => $selectedAccountId,
                 'search_query' => $searchQuery,
                 'available_months' => $availableMonths,
+                'selected_year' => $selectedYear,
+                'available_years' => $availableYears,
             ],
             'accounts' => $accounts,
             'categories' => $categories,
             'transactions' => $transactions,
             'recent_transactions' => $transactions->take(10)->values(),
             'imports' => $imports,
+            'monthly_balances' => $this->buildMonthlyBalances($accountModels, $balanceTransactions, $selectedYear),
         ]);
+    }
+
+    private function buildMonthlyBalances($accountModels, $balanceTransactions, int $year)
+    {
+        $transactionsByAccount = $balanceTransactions->groupBy('account_id');
+
+        return collect(range(1, 12))
+            ->map(function (int $month) use ($accountModels, $transactionsByAccount, $year): array {
+                $monthStart = CarbonImmutable::create($year, $month, 1)->startOfMonth();
+                $monthEnd = $monthStart->endOfMonth();
+                $income = 0.0;
+                $expenses = 0.0;
+                $openingBalance = 0.0;
+                $closingBalance = 0.0;
+                $hasBalanceSnapshot = false;
+
+                foreach ($accountModels as $account) {
+                    $accountTransactions = $transactionsByAccount->get($account->id, collect());
+                    $monthlyTransactions = $accountTransactions->filter(function (Transaction $transaction) use ($monthStart, $monthEnd): bool {
+                        $bookingDate = $transaction->booking_date ? CarbonImmutable::parse((string) $transaction->booking_date) : null;
+
+                        return $bookingDate !== null && $bookingDate->betweenIncluded($monthStart, $monthEnd);
+                    });
+
+                    $monthlyIncome = (float) $monthlyTransactions
+                        ->filter(fn(Transaction $transaction): bool => (float) $transaction->amount > 0)
+                        ->sum('amount');
+                    $monthlyExpenseSum = (float) $monthlyTransactions
+                        ->filter(fn(Transaction $transaction): bool => (float) $transaction->amount < 0)
+                        ->sum('amount');
+
+                    $income += $monthlyIncome;
+                    $expenses += abs($monthlyExpenseSum);
+
+                    $balanceAsOf = data_get($account->metadata, 'balance_as_of');
+
+                    if ($balanceAsOf === null) {
+                        continue;
+                    }
+
+                    $snapshotDate = CarbonImmutable::parse($balanceAsOf)->endOfDay();
+
+                    if ($monthStart->gt($snapshotDate)) {
+                        continue;
+                    }
+
+                    $afterMonthSum = (float) $accountTransactions
+                        ->filter(function (Transaction $transaction) use ($monthEnd, $snapshotDate): bool {
+                            $bookingDate = $transaction->booking_date ? CarbonImmutable::parse((string) $transaction->booking_date) : null;
+
+                            return $bookingDate !== null && $bookingDate->gt($monthEnd) && $bookingDate->lte($snapshotDate);
+                        })
+                        ->sum('amount');
+
+                    $monthNet = (float) $monthlyTransactions->sum('amount');
+                    $accountClosingBalance = (float) $account->current_balance - $afterMonthSum;
+                    $accountOpeningBalance = $accountClosingBalance - $monthNet;
+
+                    $closingBalance += $accountClosingBalance;
+                    $openingBalance += $accountOpeningBalance;
+                    $hasBalanceSnapshot = true;
+                }
+
+                return [
+                    'month' => $monthStart->format('Y-m'),
+                    'label' => $monthStart->locale('de')->translatedFormat('F Y'),
+                    'income' => number_format($income, 2, '.', ''),
+                    'expenses' => number_format($expenses, 2, '.', ''),
+                    'net' => number_format($income - $expenses, 2, '.', ''),
+                    'opening_balance' => $hasBalanceSnapshot ? number_format($openingBalance, 2, '.', '') : null,
+                    'closing_balance' => $hasBalanceSnapshot ? number_format($closingBalance, 2, '.', '') : null,
+                ];
+            })
+            ->values();
     }
 }

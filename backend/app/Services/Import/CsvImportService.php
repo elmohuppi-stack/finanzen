@@ -56,6 +56,13 @@ class CsvImportService
 
         return DB::transaction(function () use ($user, $fileName, $content, $preview): FinanceImport {
             $account = $this->resolveAccount($user, $content, $preview['detected_type'], $preview['delimiter']);
+            $accountSnapshot = $this->extractAccountSnapshot(
+                $content,
+                $preview['delimiter'],
+                $preview['header_row_index'],
+            );
+
+            $this->applyAccountSnapshot($account, $accountSnapshot);
 
             $import = FinanceImport::query()->create([
                 'user_id' => $user->id,
@@ -238,6 +245,103 @@ class CsvImportService
                 'metadata' => ['source_type' => 'paypal'],
             ],
         );
+    }
+
+    /**
+     * @return array{current_balance?: string, balance_as_of?: string, statement_period_from?: string, statement_period_to?: string}
+     */
+    private function extractAccountSnapshot(string $content, string $delimiter, ?int $headerRowIndex): array
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $content) ?: [];
+        $snapshotLines = $headerRowIndex === null
+            ? array_slice($lines, 0, 12)
+            : array_slice($lines, 0, $headerRowIndex);
+
+        $snapshot = [];
+
+        foreach ($snapshotLines as $line) {
+            $row = $this->parseRow($line, $delimiter);
+
+            if ($row === []) {
+                continue;
+            }
+
+            $label = trim((string) ($row[0] ?? ''));
+            $value = trim((string) ($row[1] ?? ''));
+            $combined = trim(implode(' ', array_filter($row, static fn(string $cell): bool => $cell !== '')));
+            $searchText = $label !== '' ? $label : $combined;
+
+            if (
+                (! isset($snapshot['statement_period_from']) || ! isset($snapshot['statement_period_to']))
+                && str_contains(mb_strtolower($searchText), 'zeitraum')
+                && preg_match('/(\d{2}\.\d{2}\.\d{2,4})\s*-\s*(\d{2}\.\d{2}\.\d{2,4})/', $value !== '' ? $value : $combined, $matches) === 1
+            ) {
+                $periodFrom = $this->parseGermanDate($matches[1]);
+                $periodTo = $this->parseGermanDate($matches[2]);
+
+                if ($periodFrom !== null) {
+                    $snapshot['statement_period_from'] = $periodFrom;
+                }
+
+                if ($periodTo !== null) {
+                    $snapshot['statement_period_to'] = $periodTo;
+                }
+            }
+
+            if (! isset($snapshot['current_balance']) && preg_match('/(?:kontostand|saldo)/iu', $searchText) === 1) {
+                $balanceAsOf = null;
+
+                if (preg_match('/(\d{2}\.\d{2}\.\d{2,4})/', $searchText, $dateMatch) === 1) {
+                    $balanceAsOf = $this->parseGermanDate($dateMatch[1]);
+                }
+
+                $amount = $this->parseAmount($value !== '' ? $value : $combined);
+
+                if ($amount !== null) {
+                    $snapshot['current_balance'] = $amount;
+                }
+
+                if ($balanceAsOf !== null) {
+                    $snapshot['balance_as_of'] = $balanceAsOf;
+                }
+            }
+        }
+
+        return $snapshot;
+    }
+
+    /**
+     * @param  array{current_balance?: string, balance_as_of?: string, statement_period_from?: string, statement_period_to?: string}  $snapshot
+     */
+    private function applyAccountSnapshot(Account $account, array $snapshot): void
+    {
+        if ($snapshot === []) {
+            return;
+        }
+
+        $metadata = is_array($account->metadata) ? $account->metadata : [];
+        $incomingBalance = $snapshot['current_balance'] ?? null;
+        $incomingDate = $snapshot['balance_as_of'] ?? null;
+        $existingDate = data_get($metadata, 'balance_as_of');
+        $shouldReplaceSnapshot = $incomingBalance !== null
+            && ($existingDate === null || ($incomingDate !== null && $incomingDate >= $existingDate));
+
+        if ($shouldReplaceSnapshot) {
+            $account->current_balance = $incomingBalance;
+            $account->metadata = array_merge($metadata, $snapshot);
+            $account->save();
+
+            return;
+        }
+
+        foreach ($snapshot as $key => $value) {
+            if (! array_key_exists($key, $metadata)) {
+                $metadata[$key] = $value;
+            }
+        }
+
+        $account->metadata = $metadata;
+        $account->save();
     }
 
     /**
