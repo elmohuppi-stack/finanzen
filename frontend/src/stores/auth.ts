@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import { apiFetch } from '@/lib/api'
+import { ApiError, apiFetch } from '@/lib/api'
 
 export interface AuthUser {
   id: number
@@ -10,6 +10,17 @@ export interface AuthUser {
 }
 
 const tokenStorageKey = 'finanzen.auth.token'
+
+function toErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && typeof err.payload === 'object' && err.payload !== null) {
+    const payload = err.payload as { errors?: Record<string, string[]>; message?: string }
+    const firstValidationError = Object.values(payload.errors ?? {})[0]?.[0]
+
+    return firstValidationError ?? payload.message ?? fallback
+  }
+
+  return err instanceof Error ? err.message : fallback
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string>(localStorage.getItem(tokenStorageKey) ?? '')
@@ -28,6 +39,10 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(tokenStorageKey)
   }
 
+  function clearError() {
+    error.value = null
+  }
+
   function clearSession() {
     token.value = ''
     user.value = null
@@ -36,7 +51,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(email: string, password: string) {
     loading.value = true
-    error.value = null
+    clearError()
 
     try {
       const response = await apiFetch<{ token: string; user: AuthUser }>('/api/login', {
@@ -48,7 +63,38 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = response.user
       persistToken()
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Login failed.'
+      error.value = toErrorMessage(err, 'Login failed.')
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function register(
+    name: string,
+    email: string,
+    password: string,
+    passwordConfirmation: string,
+  ) {
+    loading.value = true
+    clearError()
+
+    try {
+      const response = await apiFetch<{ token: string; user: AuthUser }>('/api/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          password_confirmation: passwordConfirmation,
+        }),
+      })
+
+      token.value = response.token
+      user.value = response.user
+      persistToken()
+    } catch (err) {
+      error.value = toErrorMessage(err, 'Registration failed.')
       throw err
     } finally {
       loading.value = false
@@ -78,6 +124,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     clearSession()
+    clearError()
   }
 
   return {
@@ -87,7 +134,9 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     login,
+    register,
     fetchMe,
     logout,
+    clearError,
   }
 })

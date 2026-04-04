@@ -7,6 +7,8 @@ import { useAuthStore } from '@/stores/auth'
 const authStore = useAuthStore()
 const theme = ref<'light' | 'dark'>('light')
 const isDark = computed(() => theme.value === 'dark')
+const isUserMenuOpen = ref(false)
+const showLogoutConfirm = ref(false)
 
 function applyTheme(value: 'light' | 'dark') {
   document.documentElement.setAttribute('data-theme', value)
@@ -15,6 +17,24 @@ function applyTheme(value: 'light' | 'dark') {
 
 function toggleTheme() {
   theme.value = isDark.value ? 'light' : 'dark'
+}
+
+function toggleUserMenu() {
+  isUserMenuOpen.value = !isUserMenuOpen.value
+}
+
+function requestLogout() {
+  isUserMenuOpen.value = false
+  showLogoutConfirm.value = true
+}
+
+function closeLogoutConfirm() {
+  showLogoutConfirm.value = false
+}
+
+async function confirmLogout() {
+  await authStore.logout()
+  showLogoutConfirm.value = false
 }
 
 onMounted(() => {
@@ -47,7 +67,20 @@ watch(theme, (value) => {
           <RouterLink to="/">Dashboard</RouterLink>
           <RouterLink to="/imports/preview">Import-Vorschau</RouterLink>
           <RouterLink to="/about">Projektstatus</RouterLink>
-          <RouterLink to="/login">Login</RouterLink>
+          <RouterLink v-if="!authStore.isAuthenticated" to="/login">Login</RouterLink>
+          <div v-else class="user-menu">
+            <button class="nav-action user-menu__trigger" type="button" @click="toggleUserMenu">
+              {{ authStore.user?.name || 'Kunde' }}
+              <span class="user-menu__chevron">▾</span>
+            </button>
+
+            <div v-if="isUserMenuOpen" class="user-menu__dropdown">
+              <p class="user-menu__label">Angemeldet als</p>
+              <strong>{{ authStore.user?.name }}</strong>
+              <p class="user-menu__email">{{ authStore.user?.email }}</p>
+              <button class="user-menu__logout" type="button" @click="requestLogout">Logout</button>
+            </div>
+          </div>
         </nav>
 
         <button
@@ -62,21 +95,25 @@ watch(theme, (value) => {
           </span>
           <span class="theme-toggle__label">{{ isDark ? 'Dunkel' : 'Hell' }}</span>
         </button>
-
-        <button
-          v-if="authStore.isAuthenticated"
-          class="logout-button"
-          type="button"
-          @click="authStore.logout()"
-        >
-          Logout
-        </button>
       </div>
     </header>
 
     <main class="content">
       <RouterView />
     </main>
+
+    <div v-if="showLogoutConfirm" class="modal-overlay" @click.self="closeLogoutConfirm">
+      <div class="modal-card">
+        <h2>Wirklich abmelden?</h2>
+        <p>Du wirst aus der aktuellen Sitzung ausgeloggt.</p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" @click="closeLogoutConfirm">
+            Abbrechen
+          </button>
+          <button class="danger-button" type="button" @click="confirmLogout">Logout</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -123,7 +160,8 @@ nav {
   flex-wrap: wrap;
 }
 
-nav a {
+nav a,
+.nav-action {
   padding: 0.6rem 0.95rem;
   border-radius: 999px;
   background: var(--color-accent-soft);
@@ -132,14 +170,70 @@ nav a {
   font-weight: 600;
 }
 
+.nav-action {
+  cursor: pointer;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.user-menu__chevron {
+  font-size: 0.8rem;
+}
+
+.user-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 220px;
+  padding: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-elevated);
+  z-index: 10;
+}
+
+.user-menu__label {
+  margin-bottom: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.user-menu__email {
+  margin-top: 0.1rem;
+  margin-bottom: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.user-menu__logout {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-accent-strong);
+  color: white;
+  padding: 0.7rem 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 nav a.router-link-exact-active {
   background: var(--color-accent-strong);
   color: #fff;
   box-shadow: 0 10px 24px rgba(79, 70, 229, 0.24);
 }
 
-.theme-toggle,
-.logout-button {
+.theme-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
@@ -184,15 +278,59 @@ nav a.router-link-exact-active {
   text-align: left;
 }
 
-.logout-button {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
 .content {
   display: grid;
   gap: 1rem;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  z-index: 30;
+}
+
+.modal-card {
+  width: min(100%, 420px);
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-elevated);
+}
+
+.modal-card p {
+  margin-top: 0.5rem;
+  color: var(--color-text-muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.secondary-button,
+.danger-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 0.7rem 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondary-button {
+  background: var(--color-background-mute);
+  color: var(--color-text);
+}
+
+.danger-button {
+  background: var(--color-danger);
+  color: white;
 }
 
 @media (min-width: 900px) {

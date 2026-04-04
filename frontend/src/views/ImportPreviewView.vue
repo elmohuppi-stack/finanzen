@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import { apiFetch } from '@/lib/api'
@@ -16,10 +16,52 @@ interface ImportPreviewResponse {
   sample_rows: Array<Record<string, string>>
 }
 
+interface ImportRunResponse {
+  message: string
+  import: {
+    id: number
+    source_type: string
+    file_name: string
+    status: string
+    imported_rows: number
+    skipped_rows: number
+    error_rows: number
+    started_at: string | null
+    finished_at: string | null
+    account: {
+      id: number | null
+      name: string | null
+      account_type: string | null
+    }
+  }
+}
+
+interface ImportHistoryResponse {
+  imports: Array<{
+    id: number
+    source_type: string
+    file_name: string
+    status: string
+    imported_rows: number
+    skipped_rows: number
+    error_rows: number
+    imported_at: string | null
+    period_from: string | null
+    period_to: string | null
+    account_name: string | null
+    account_type: string | null
+  }>
+}
+
 const authStore = useAuthStore()
 const selectedFile = ref<File | null>(null)
+const fileInputKey = ref(0)
 const preview = ref<ImportPreviewResponse | null>(null)
+const importResult = ref<ImportRunResponse['import'] | null>(null)
+const importHistory = ref<ImportHistoryResponse['imports']>([])
 const loading = ref(false)
+const importLoading = ref(false)
+const historyLoading = ref(false)
 const error = ref('')
 
 const detectedLabel = computed(() => {
@@ -35,11 +77,87 @@ const detectedLabel = computed(() => {
   }
 })
 
+const importResultMessage = computed(() => {
+  if (!importResult.value) {
+    return ''
+  }
+
+  if (importResult.value.imported_rows === 0 && importResult.value.skipped_rows > 0) {
+    return 'Es wurden keine neuen Umsätze gefunden – die Datei war bereits importiert.'
+  }
+
+  return 'Der Import wurde gespeichert und im Verlauf protokolliert.'
+})
+
+function formatDateTime(value: string | null) {
+  if (!value) {
+    return '—'
+  }
+
+  return new Intl.DateTimeFormat('de-DE', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
+function formatPeriod(from: string | null, to: string | null) {
+  if (!from && !to) {
+    return '—'
+  }
+
+  if (from && to) {
+    return `${from} bis ${to}`
+  }
+
+  return from ?? to ?? '—'
+}
+
+function formatSourceType(sourceType: string) {
+  switch (sourceType) {
+    case 'dkb_giro':
+      return 'DKB Giro'
+    case 'dkb_visa':
+      return 'DKB Visa'
+    case 'paypal':
+      return 'PayPal'
+    default:
+      return sourceType
+  }
+}
+
+function resetFlow() {
+  selectedFile.value = null
+  preview.value = null
+  importResult.value = null
+  error.value = ''
+  fileInputKey.value += 1
+}
+
 function onFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   selectedFile.value = target.files?.[0] ?? null
   preview.value = null
+  importResult.value = null
   error.value = ''
+}
+
+async function loadImportHistory() {
+  if (!authStore.token) {
+    importHistory.value = []
+    return
+  }
+
+  historyLoading.value = true
+
+  try {
+    const response = await apiFetch<ImportHistoryResponse>('/api/imports', {}, authStore.token)
+    importHistory.value = response.imports
+  } catch (err) {
+    error.value =
+      err instanceof Error ? err.message : 'Der Import-Verlauf konnte nicht geladen werden.'
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 async function submit() {
@@ -49,6 +167,7 @@ async function submit() {
   }
 
   loading.value = true
+  importResult.value = null
   error.value = ''
 
   try {
@@ -69,6 +188,59 @@ async function submit() {
     loading.value = false
   }
 }
+
+async function startImport() {
+  if (!selectedFile.value || !authStore.token) {
+    error.value = 'Bitte zuerst anmelden und eine CSV-Datei auswählen.'
+    return
+  }
+
+  if (!preview.value) {
+    error.value = 'Bitte zuerst die Vorschau laden.'
+    return
+  }
+
+  importLoading.value = true
+  error.value = ''
+
+  try {
+    const formData = new FormData()
+    formData.append('file', selectedFile.value)
+
+    const response = await apiFetch<ImportRunResponse>(
+      '/api/imports',
+      {
+        method: 'POST',
+        body: formData,
+      },
+      authStore.token,
+    )
+
+    importResult.value = response.import
+    preview.value = null
+    selectedFile.value = null
+    fileInputKey.value += 1
+    await loadImportHistory()
+  } catch (err) {
+    error.value =
+      err instanceof Error ? err.message : 'Der Import konnte nicht abgeschlossen werden.'
+  } finally {
+    importLoading.value = false
+  }
+}
+
+watch(
+  () => authStore.token,
+  async (token) => {
+    if (!token) {
+      importHistory.value = []
+      return
+    }
+
+    await loadImportHistory()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -92,8 +264,8 @@ async function submit() {
       <h3>Datei auswählen</h3>
 
       <div class="form-row">
-        <input type="file" accept=".csv,.CSV,.txt" @change="onFileChange" />
-        <button type="button" :disabled="loading || !selectedFile" @click="submit">
+        <input :key="fileInputKey" type="file" accept=".csv,.CSV,.txt" @change="onFileChange" />
+        <button type="button" :disabled="loading || importLoading || !selectedFile" @click="submit">
           {{ loading ? 'Lade Vorschau…' : 'Vorschau laden' }}
         </button>
       </div>
@@ -138,6 +310,76 @@ async function submit() {
         </table>
       </div>
     </article>
+
+    <article v-if="preview" class="card next-step">
+      <h3>Nächster Schritt: importieren</h3>
+      <p>
+        Wenn die Vorschau passt, kannst du die Datei jetzt wirklich in die Datenbank übernehmen.
+        Bereits bekannte Umsätze werden dabei duplicate-safe übersprungen.
+      </p>
+      <button type="button" :disabled="importLoading || !selectedFile" @click="startImport">
+        {{ importLoading ? 'Importiere…' : 'Import jetzt speichern' }}
+      </button>
+    </article>
+
+    <article v-if="importResult" class="card success">
+      <h3>Import abgeschlossen</h3>
+      <p>{{ importResultMessage }}</p>
+      <ul class="meta-list">
+        <li><strong>Konto:</strong> {{ importResult.account.name ?? 'Automatisch erkannt' }}</li>
+        <li><strong>Status:</strong> {{ importResult.status }}</li>
+        <li><strong>Neu importiert:</strong> {{ importResult.imported_rows }}</li>
+        <li><strong>Übersprungen:</strong> {{ importResult.skipped_rows }}</li>
+        <li><strong>Fehler:</strong> {{ importResult.error_rows }}</li>
+      </ul>
+
+      <div class="action-row">
+        <button type="button" class="secondary-button" @click="resetFlow">
+          Weitere Datei importieren
+        </button>
+        <RouterLink class="link-button" to="/">Zum Dashboard</RouterLink>
+      </div>
+    </article>
+
+    <article v-if="authStore.isAuthenticated" class="card">
+      <div class="section-header">
+        <div>
+          <h3>Import-Verlauf</h3>
+          <p class="muted">Welche CSV wann importiert wurde und welchen Zeitraum sie abdeckt.</p>
+        </div>
+      </div>
+
+      <p v-if="historyLoading" class="muted">Lade Import-Verlauf…</p>
+
+      <div v-else-if="importHistory.length" class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Importiert am</th>
+              <th>Quelle</th>
+              <th>Datei</th>
+              <th>Konto</th>
+              <th>Zeitraum</th>
+              <th>Ergebnis</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="entry in importHistory" :key="entry.id">
+              <td>{{ formatDateTime(entry.imported_at) }}</td>
+              <td>{{ formatSourceType(entry.source_type) }}</td>
+              <td>{{ entry.file_name }}</td>
+              <td>{{ entry.account_name || '—' }}</td>
+              <td>{{ formatPeriod(entry.period_from, entry.period_to) }}</td>
+              <td>
+                {{ entry.imported_rows }} neu · {{ entry.skipped_rows }} übersprungen ·
+                {{ entry.error_rows }} Fehler
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else class="muted">Noch keine CSV-Importe vorhanden.</p>
+    </article>
   </section>
 </template>
 
@@ -169,6 +411,26 @@ async function submit() {
   background: var(--color-warning-soft);
 }
 
+.next-step {
+  border-style: dashed;
+}
+
+.success {
+  border-color: rgba(5, 150, 105, 0.35);
+  background: rgba(5, 150, 105, 0.08);
+}
+
+.section-header h3 {
+  margin-bottom: 0.25rem;
+}
+
+.action-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
 .form-row {
   display: flex;
   gap: 0.75rem;
@@ -192,9 +454,14 @@ button,
   text-decoration: none;
 }
 
+.secondary-button {
+  background: var(--color-background-mute);
+  color: var(--color-text);
+}
+
 button:disabled {
   opacity: 0.7;
-  cursor: progress;
+  cursor: not-allowed;
 }
 
 .muted {
