@@ -1,0 +1,38 @@
+# Dependencies
+/backend/vendor/
+/frontend/node_modules/
+
+# Build artifacts
+/backend/public/build/
+/frontend/dist/
+
+# Environment
+/backend/.env
+/backend/.env.*
+/frontend/.env
+/frontend/.env.*
+!.env.example
+
+# Runtime / storage
+/backend/storage/*.key
+/backend/storage/logs/*
+/backend/storage/framework/cache/*
+/backend/storage/framework/sessions/*
+/backend/storage/framework/views/*
+!/backend/storage/logs/.gitignore
+!/backend/storage/framework/cache/.gitignore
+!/backend/storage/framework/sessions/.gitignore
+!/backend/storage/framework/views/.gitignore
+
+# Local data imports/exports
+/csv/*.csv
+/csv/*.CSV
+/docs/csv/*.csv
+/docs/csv/*.CSV
+/backend/storage/app/imports/*
+/backend/storage/app/exports/*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
