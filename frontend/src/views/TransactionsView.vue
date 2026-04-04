@@ -82,6 +82,7 @@ const selectedAccountId = ref('')
 const selectedTransactionId = ref<number | null>(null)
 const categoryDraft = ref('')
 const savingCategory = ref(false)
+const defaultAccountInitialized = ref(false)
 
 const availableMonths = computed(() => dashboard.value?.filters.available_months ?? [])
 const currentMonthIndex = computed(() => availableMonths.value.indexOf(selectedMonth.value))
@@ -89,9 +90,29 @@ const canGoToNewerMonth = computed(() => currentMonthIndex.value > 0)
 const canGoToOlderMonth = computed(
   () => currentMonthIndex.value >= 0 && currentMonthIndex.value < availableMonths.value.length - 1,
 )
-const accounts = computed(() => dashboard.value?.accounts ?? [])
+const accounts = computed(() => {
+  return [...(dashboard.value?.accounts ?? [])].sort((left, right) => {
+    const priorityDifference =
+      getAccountPriority(left.account_type) - getAccountPriority(right.account_type)
+
+    if (priorityDifference !== 0) {
+      return priorityDifference
+    }
+
+    return left.name.localeCompare(right.name, 'de')
+  })
+})
 const transactions = computed(() => dashboard.value?.transactions ?? [])
 const categories = computed(() => dashboard.value?.categories ?? [])
+const displayedBalanceTotal = computed(() => {
+  const relevantAccounts = selectedAccountId.value
+    ? accounts.value.filter((account) => String(account.id) === selectedAccountId.value)
+    : accounts.value
+
+  return relevantAccounts.reduce((sum, account) => {
+    return sum + Number(account.current_balance || account.booked_balance || 0)
+  }, 0)
+})
 
 const selectedTransaction = computed<TransactionItem | null>(() => {
   if (selectedTransactionId.value === null) {
@@ -104,15 +125,32 @@ const selectedTransaction = computed<TransactionItem | null>(() => {
 })
 
 const groupedTransactions = computed(() => {
-  const groups = new Map<string, { dateLabel: string; total: number; items: TransactionItem[] }>()
+  const groups = new Map<
+    string,
+    {
+      dateKey: string
+      dateLabel: string
+      total: number
+      closingBalance: number
+      items: TransactionItem[]
+    }
+  >()
+  const sortedTransactions = [...transactions.value].sort((left, right) => {
+    const leftDate = left.booking_date ?? ''
+    const rightDate = right.booking_date ?? ''
 
-  for (const transaction of transactions.value) {
+    return rightDate.localeCompare(leftDate) || right.id - left.id
+  })
+
+  for (const transaction of sortedTransactions) {
     const key = transaction.booking_date ?? 'ohne-datum'
 
     if (!groups.has(key)) {
       groups.set(key, {
+        dateKey: key,
         dateLabel: formatDate(transaction.booking_date),
         total: 0,
+        closingBalance: 0,
         items: [],
       })
     }
@@ -127,7 +165,17 @@ const groupedTransactions = computed(() => {
     group.items.push(transaction)
   }
 
-  return Array.from(groups.values())
+  let runningBalance = displayedBalanceTotal.value
+
+  return Array.from(groups.values()).map((group) => {
+    const closingBalance = runningBalance
+    runningBalance -= group.total
+
+    return {
+      ...group,
+      closingBalance,
+    }
+  })
 })
 
 const periodLabel = computed(() => {
@@ -151,11 +199,18 @@ const periodLabel = computed(() => {
   }).format(new Date(year, month - 1, 1))
 })
 
-function formatMoney(amount: string, currency = 'EUR') {
+function formatMoney(amount: number | string, currency = 'EUR') {
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency,
   }).format(Number(amount))
+}
+
+function formatSignedMoney(amount: number | string, currency = 'EUR') {
+  const numericAmount = Number(amount)
+  const formattedAmount = formatMoney(numericAmount, currency)
+
+  return numericAmount > 0 ? `+${formattedAmount}` : formattedAmount
 }
 
 function formatDate(value: string | null) {
@@ -181,6 +236,38 @@ function formatSourceType(sourceType: string) {
     default:
       return sourceType
   }
+}
+
+function getAccountPriority(accountType: string) {
+  switch (accountType) {
+    case 'checking_account':
+      return 0
+    case 'cash_wallet':
+      return 1
+    case 'savings_account':
+      return 2
+    case 'paypal_account':
+      return 3
+    case 'credit_card':
+      return 4
+    default:
+      return 5
+  }
+}
+
+function getDefaultAccountId(accountList: DashboardResponse['accounts']) {
+  const sortedAccounts = [...accountList].sort((left, right) => {
+    const priorityDifference =
+      getAccountPriority(left.account_type) - getAccountPriority(right.account_type)
+
+    if (priorityDifference !== 0) {
+      return priorityDifference
+    }
+
+    return left.name.localeCompare(right.name, 'de')
+  })
+
+  return sortedAccounts[0] ? String(sortedAccounts[0].id) : ''
 }
 
 async function loadTransactions() {
@@ -213,10 +300,29 @@ async function loadTransactions() {
       authStore.token,
     )
 
-    dashboard.value = response
-    selectedAccountId.value = response.filters.selected_account_id
+    const responseSelectedAccountId = response.filters.selected_account_id
       ? String(response.filters.selected_account_id)
       : ''
+
+    if (
+      !defaultAccountInitialized.value &&
+      !selectedAccountId.value &&
+      !responseSelectedAccountId
+    ) {
+      defaultAccountInitialized.value = true
+
+      const defaultAccountId = getDefaultAccountId(response.accounts)
+
+      if (defaultAccountId) {
+        selectedAccountId.value = defaultAccountId
+        await loadTransactions()
+        return
+      }
+    }
+
+    defaultAccountInitialized.value = true
+    dashboard.value = response
+    selectedAccountId.value = responseSelectedAccountId || selectedAccountId.value
     searchQuery.value = response.filters.search_query ?? ''
 
     if (response.filters.selected_month) {
@@ -335,6 +441,8 @@ watch(
   async (token) => {
     if (!token) {
       dashboard.value = null
+      selectedAccountId.value = ''
+      defaultAccountInitialized.value = false
       return
     }
 
@@ -423,19 +531,19 @@ watch(
         <button
           type="button"
           class="ghost-button"
-          :disabled="!canGoToNewerMonth"
-          @click="goToNewerMonth"
+          :disabled="!canGoToOlderMonth"
+          @click="goToOlderMonth"
         >
-          ← Neuer
+          ← Älter
         </button>
         <strong>{{ periodLabel }}</strong>
         <button
           type="button"
           class="ghost-button"
-          :disabled="!canGoToOlderMonth"
-          @click="goToOlderMonth"
+          :disabled="!canGoToNewerMonth"
+          @click="goToNewerMonth"
         >
-          Älter →
+          Neuer →
         </button>
       </div>
 
@@ -443,11 +551,12 @@ watch(
       <p v-else-if="loading" class="muted">Buchungen werden geladen…</p>
 
       <div v-else-if="groupedTransactions.length" class="group-list">
-        <section v-for="group in groupedTransactions" :key="group.dateLabel" class="day-group">
+        <section v-for="group in groupedTransactions" :key="group.dateKey" class="day-group">
           <header class="day-header">
             <strong>{{ group.dateLabel }}</strong>
-            <span :class="group.total >= 0 ? 'positive' : 'negative'">
-              Tagessaldo {{ formatMoney(String(group.total)) }}
+            <span class="day-balance">
+              <span>({{ formatSignedMoney(group.total) }})</span>
+              <span>Stand {{ formatMoney(group.closingBalance) }}</span>
             </span>
           </header>
 
@@ -564,6 +673,10 @@ watch(
 
 .panel {
   min-height: 540px;
+}
+
+.list-panel {
+  scrollbar-gutter: stable;
 }
 
 .panel-header {
@@ -705,6 +818,16 @@ p {
   font-size: 0.95rem;
 }
 
+.day-balance {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
 .transaction-row {
   padding: 0.8rem 0.9rem;
   align-items: center;
@@ -712,6 +835,15 @@ p {
 
 .transaction-main {
   min-width: 0;
+}
+
+.transaction-main p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-clamp: 2;
 }
 
 .transaction-meta {
@@ -777,6 +909,13 @@ dd {
 @media (min-width: 1100px) {
   .transactions-layout {
     grid-template-columns: 280px minmax(0, 1fr) 320px;
+    align-items: start;
+  }
+
+  .list-panel {
+    max-height: min(720px, calc(100vh - 8rem));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 </style>
