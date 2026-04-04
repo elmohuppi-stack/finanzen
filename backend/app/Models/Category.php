@@ -35,4 +35,9 @@ class Category extends Model
     {
         return $this->hasMany(TransactionSplit::class);
     }
+
+    public function rules(): HasMany
+    {
+        return $this->hasMany(CategoryRule::class);
+    }
 }

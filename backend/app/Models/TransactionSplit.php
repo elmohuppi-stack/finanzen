@@ -10,6 +10,7 @@ class TransactionSplit extends Model
     protected $fillable = [
         'transaction_id',
         'category_id',
+        'category_rule_id',
         'name',
         'amount',
         'split_type',
@@ -34,5 +35,10 @@ class TransactionSplit extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function categoryRule(): BelongsTo
+    {
+        return $this->belongsTo(CategoryRule::class);
     }
 }

@@ -137,7 +137,7 @@ class DashboardController extends Controller
             ->values();
 
         $transactions = (clone $filteredTransactionQuery)
-            ->with(['account:id,name', 'splits.category:id,name,color'])
+            ->with(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name'])
             ->orderByDesc('booking_date')
             ->orderByDesc('id')
             ->get()
@@ -162,6 +162,9 @@ class DashboardController extends Controller
                     'category_id' => $primarySplit?->category_id,
                     'category_name' => $primarySplit?->category?->name,
                     'category_color' => $primarySplit?->category?->color,
+                    'category_source' => data_get($primarySplit?->metadata, 'source'),
+                    'category_rule_id' => $primarySplit?->category_rule_id,
+                    'category_rule_name' => $primarySplit?->categoryRule?->name,
                 ];
             })
             ->values();

@@ -27,7 +27,7 @@ class TransactionController extends Controller
         $transaction = Transaction::query()
             ->whereKey($transactionId)
             ->whereHas('account', fn($query) => $query->where('user_id', $user->id))
-            ->with(['account:id,name', 'splits.category:id,name,color'])
+            ->with(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name'])
             ->firstOrFail();
 
         $categoryId = $validated['category_id'] ?? null;
@@ -49,15 +49,16 @@ class TransactionController extends Controller
                 ],
                 [
                     'category_id' => $category->id,
+                    'category_rule_id' => null,
                     'name' => $category->name,
                     'amount' => $transaction->amount,
                     'notes' => null,
-                    'metadata' => ['source' => 'inline-category-assignment'],
+                    'metadata' => ['source' => 'manual'],
                 ],
             );
         }
 
-        $transaction->load(['account:id,name', 'splits.category:id,name,color']);
+        $transaction->load(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name']);
 
         $primarySplit = $transaction->splits
             ->sortBy('sort_order')
@@ -69,6 +70,9 @@ class TransactionController extends Controller
                 'category_id' => $primarySplit?->category_id,
                 'category_name' => $primarySplit?->category?->name,
                 'category_color' => $primarySplit?->category?->color,
+                'category_source' => data_get($primarySplit?->metadata, 'source'),
+                'category_rule_id' => $primarySplit?->category_rule_id,
+                'category_rule_name' => $primarySplit?->categoryRule?->name,
                 'account_name' => $transaction->account?->name,
             ],
         ]);

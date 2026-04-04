@@ -66,6 +66,7 @@ watch(theme, (value) => {
         <nav>
           <RouterLink to="/">Dashboard</RouterLink>
           <RouterLink to="/transactions">Buchungen</RouterLink>
+          <RouterLink to="/categories">Kategorien</RouterLink>
           <RouterLink to="/analysis">Auswertung</RouterLink>
           <RouterLink to="/imports">Import</RouterLink>
           <RouterLink to="/help">Hilfe</RouterLink>
