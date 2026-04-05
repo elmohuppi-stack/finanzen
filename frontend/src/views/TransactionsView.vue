@@ -78,6 +78,7 @@ type TransactionItem = DashboardResponse['transactions'][number]
 const authStore = useAuthStore()
 const dashboard = ref<DashboardResponse | null>(null)
 const loading = ref(false)
+const isRefreshing = ref(false)
 const error = ref('')
 const viewMode = ref<'month' | 'all'>('month')
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
@@ -88,6 +89,8 @@ const transferFilter = ref<'all' | 'transfer' | 'linked' | 'group'>('all')
 const categoryDraft = ref('')
 const savingCategory = ref(false)
 const defaultAccountInitialized = ref(false)
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let latestLoadRequestId = 0
 
 const availableMonths = computed(() => dashboard.value?.filters.available_months ?? [])
 const currentMonthIndex = computed(() => availableMonths.value.indexOf(selectedMonth.value))
@@ -129,7 +132,7 @@ const selectedTransaction = computed<TransactionItem | null>(() => {
   )
 })
 
-const filteredTransactions = computed(() => {
+const transferFilteredTransactions = computed(() => {
   switch (transferFilter.value) {
     case 'transfer':
       return transactions.value.filter((transaction) => transaction.is_transfer)
@@ -151,6 +154,25 @@ const filteredTransactions = computed(() => {
     default:
       return transactions.value
   }
+})
+
+const filteredTransactions = computed(() => {
+  const normalizedQuery = searchQuery.value.trim().toLocaleLowerCase('de')
+
+  if (!normalizedQuery) {
+    return transferFilteredTransactions.value
+  }
+
+  return transferFilteredTransactions.value.filter((transaction) => {
+    const haystacks = [
+      transaction.counterparty_name ?? '',
+      transaction.description ?? '',
+      transaction.account_name ?? '',
+      transaction.source_system ?? '',
+    ]
+
+    return haystacks.some((value) => value.toLocaleLowerCase('de').includes(normalizedQuery))
+  })
 })
 
 const groupedTransactions = computed(() => {
@@ -322,13 +344,22 @@ function getDefaultAccountId(accountList: DashboardResponse['accounts']) {
   return sortedAccounts[0] ? String(sortedAccounts[0].id) : ''
 }
 
-async function loadTransactions() {
+async function loadTransactions(options: { silent?: boolean } = {}) {
   if (!authStore.token) {
     dashboard.value = null
     return
   }
 
-  loading.value = true
+  const { silent = false } = options
+  const requestId = ++latestLoadRequestId
+  const trimmedSearchQuery = searchQuery.value.trim()
+
+  if (silent) {
+    isRefreshing.value = true
+  } else {
+    loading.value = true
+  }
+
   error.value = ''
 
   try {
@@ -342,8 +373,8 @@ async function loadTransactions() {
       params.set('account_id', selectedAccountId.value)
     }
 
-    if (searchQuery.value.trim()) {
-      params.set('query', searchQuery.value.trim())
+    if (trimmedSearchQuery) {
+      params.set('query', trimmedSearchQuery)
     }
 
     const response = await apiFetch<DashboardResponse>(
@@ -351,6 +382,10 @@ async function loadTransactions() {
       {},
       authStore.token,
     )
+
+    if (requestId !== latestLoadRequestId) {
+      return
+    }
 
     const responseSelectedAccountId = response.filters.selected_account_id
       ? String(response.filters.selected_account_id)
@@ -367,7 +402,7 @@ async function loadTransactions() {
 
       if (defaultAccountId) {
         selectedAccountId.value = defaultAccountId
-        await loadTransactions()
+        await loadTransactions({ silent })
         return
       }
     }
@@ -375,7 +410,6 @@ async function loadTransactions() {
     defaultAccountInitialized.value = true
     dashboard.value = response
     selectedAccountId.value = responseSelectedAccountId || selectedAccountId.value
-    searchQuery.value = response.filters.search_query ?? ''
 
     if (response.filters.selected_month) {
       selectedMonth.value = response.filters.selected_month
@@ -389,7 +423,11 @@ async function loadTransactions() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Buchungen konnten nicht geladen werden.'
   } finally {
-    loading.value = false
+    if (silent) {
+      isRefreshing.value = false
+    } else {
+      loading.value = false
+    }
   }
 }
 
@@ -398,6 +436,11 @@ async function applyFilters() {
 }
 
 async function resetFilters() {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
+
   searchQuery.value = ''
   selectedAccountId.value = ''
   transferFilter.value = 'all'
@@ -560,6 +603,21 @@ watch(
   { immediate: true },
 )
 
+watch(searchQuery, (nextValue, previousValue) => {
+  if (!authStore.token || nextValue === previousValue) {
+    return
+  }
+
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+
+  searchDebounceTimer = setTimeout(() => {
+    void loadTransactions({ silent: true })
+    searchDebounceTimer = null
+  }, 350)
+})
+
 watch(
   filteredTransactions,
   (visibleTransactions) => {
@@ -663,7 +721,7 @@ watch(
           placeholder="Suche nach Gegenstelle oder Beschreibung"
         />
         <div class="filter-actions">
-          <button type="submit" class="primary-button">Suchen</button>
+          <span class="muted small-note">Sucht automatisch nach kurzer Pause</span>
           <button type="button" class="ghost-button" @click="resetFilters">Zurücksetzen</button>
         </div>
       </form>
@@ -733,57 +791,62 @@ watch(
       <p v-if="error" class="error">{{ error }}</p>
       <p v-else-if="loading" class="muted">Buchungen werden geladen…</p>
 
-      <div v-else-if="groupedTransactions.length" class="group-list">
-        <section v-for="group in groupedTransactions" :key="group.dateKey" class="day-group">
-          <header class="day-header">
-            <strong>{{ group.dateLabel }}</strong>
-            <span class="day-balance">
-              <span>({{ formatSignedMoney(group.total) }})</span>
-              <span>Stand {{ formatMoney(group.closingBalance) }}</span>
-            </span>
-          </header>
+      <div v-if="groupedTransactions.length" class="group-list-wrap">
+        <div v-if="isRefreshing" class="refresh-indicator" aria-hidden="true">
+          <span class="refresh-spinner"></span>
+        </div>
+        <div class="group-list" :class="{ refreshing: isRefreshing }">
+          <section v-for="group in groupedTransactions" :key="group.dateKey" class="day-group">
+            <header class="day-header">
+              <strong>{{ group.dateLabel }}</strong>
+              <span class="day-balance">
+                <span>({{ formatSignedMoney(group.total) }})</span>
+                <span>Stand {{ formatMoney(group.closingBalance) }}</span>
+              </span>
+            </header>
 
-          <button
-            v-for="transaction in group.items"
-            :key="transaction.id"
-            class="transaction-row"
-            :class="{
-              active: selectedTransaction?.id === transaction.id,
-              related: isRelatedTransfer(transaction),
-            }"
-            type="button"
-            @click="selectTransaction(transaction.id)"
-          >
-            <div class="transaction-main">
-              <strong>{{ transaction.counterparty_name || 'Ohne Gegenstelle' }}</strong>
-              <p>{{ transaction.description || formatSourceType(transaction.source_system) }}</p>
-              <p v-if="transaction.is_transfer" class="transaction-note">
-                {{ formatTransferKind(transaction.transfer_kind) }} ·
-                {{ formatTransferState(transaction) }}
-              </p>
-            </div>
-            <div class="transaction-meta">
-              <div class="transaction-tags">
-                <span class="chip">{{ transaction.category_name || 'Unkategorisiert' }}</span>
-                <span
-                  v-if="transaction.is_transfer && transaction.transfer_group_id"
-                  class="chip chip-muted chip-button"
-                  role="button"
-                  tabindex="0"
-                  @click.stop="jumpToLinkedTransaction(transaction)"
-                  @keydown.enter.stop.prevent="jumpToLinkedTransaction(transaction)"
-                  @keydown.space.stop.prevent="jumpToLinkedTransaction(transaction)"
-                >
-                  verknüpft ↗
-                </span>
-                <span v-else-if="transaction.is_transfer" class="chip chip-muted">Transfer</span>
+            <button
+              v-for="transaction in group.items"
+              :key="transaction.id"
+              class="transaction-row"
+              :class="{
+                active: selectedTransaction?.id === transaction.id,
+                related: isRelatedTransfer(transaction),
+              }"
+              type="button"
+              @click="selectTransaction(transaction.id)"
+            >
+              <div class="transaction-main">
+                <strong>{{ transaction.counterparty_name || 'Ohne Gegenstelle' }}</strong>
+                <p>{{ transaction.description || formatSourceType(transaction.source_system) }}</p>
+                <p v-if="transaction.is_transfer" class="transaction-note">
+                  {{ formatTransferKind(transaction.transfer_kind) }} ·
+                  {{ formatTransferState(transaction) }}
+                </p>
               </div>
-              <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
-                {{ formatMoney(transaction.amount, transaction.currency) }}
-              </strong>
-            </div>
-          </button>
-        </section>
+              <div class="transaction-meta">
+                <div class="transaction-tags">
+                  <span class="chip">{{ transaction.category_name || 'Unkategorisiert' }}</span>
+                  <span
+                    v-if="transaction.is_transfer && transaction.transfer_group_id"
+                    class="chip chip-muted chip-button"
+                    role="button"
+                    tabindex="0"
+                    @click.stop="jumpToLinkedTransaction(transaction)"
+                    @keydown.enter.stop.prevent="jumpToLinkedTransaction(transaction)"
+                    @keydown.space.stop.prevent="jumpToLinkedTransaction(transaction)"
+                  >
+                    verknüpft ↗
+                  </span>
+                  <span v-else-if="transaction.is_transfer" class="chip chip-muted">Transfer</span>
+                </div>
+                <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
+                  {{ formatMoney(transaction.amount, transaction.currency) }}
+                </strong>
+              </div>
+            </button>
+          </section>
+        </div>
       </div>
       <p v-else class="muted">Für diese Auswahl wurden keine Buchungen gefunden.</p>
     </section>
@@ -921,6 +984,39 @@ watch(
   scrollbar-gutter: stable;
 }
 
+.group-list-wrap {
+  position: relative;
+}
+
+.group-list.refreshing {
+  opacity: 0.88;
+  transition: opacity 120ms ease;
+}
+
+.refresh-indicator {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.2rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  pointer-events: none;
+}
+
+.refresh-spinner {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 999px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent-strong);
+  animation: spin 0.8s linear infinite;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -1016,10 +1112,17 @@ p {
   letter-spacing: 0.04em;
 }
 
-.compact-note {
+.compact-note,
+.small-note {
   margin: 0;
   font-size: 0.82rem;
   color: var(--color-text-muted);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .month-nav {

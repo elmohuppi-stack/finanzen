@@ -40,6 +40,7 @@ class ImportController extends Controller
                     : null,
                 'account_name' => $import->account?->name,
                 'account_type' => $import->account?->account_type,
+                'notes' => $import->notes,
             ])
             ->values();
 
@@ -57,9 +58,11 @@ class ImportController extends Controller
         $file = $validated['file'];
         $content = (string) $file->get();
         $preview = $this->csvImportService->preview($content);
+        $analysis = $this->csvImportService->inspectImport($request->user(), $content, $preview);
 
         return response()->json([
             ...$preview,
+            'analysis' => $analysis,
             'file_name' => $file->getClientOriginalName(),
         ]);
     }
@@ -89,6 +92,7 @@ class ImportController extends Controller
                 'error_rows' => $import->error_rows,
                 'started_at' => $import->started_at?->toIso8601String(),
                 'finished_at' => $import->finished_at?->toIso8601String(),
+                'notes' => $import->notes,
                 'account' => [
                     'id' => $import->account?->id,
                     'name' => $import->account?->name,

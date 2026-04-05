@@ -9,7 +9,7 @@ type MatchField = 'description' | 'counterparty' | 'both'
 type WorkbenchTab = 'categories' | 'rules' | 'datasets' | 'editor'
 type CategorySubTab = 'overview' | 'list' | 'form'
 type CategorySort = 'rules' | 'name' | 'type'
-type PreviewMode = 'matches' | 'all'
+type PreviewMode = 'matches' | 'all' | 'uncategorized'
 
 interface CategoryItem {
   id: number
@@ -82,6 +82,12 @@ interface RulePreviewResponse {
   transactions: PreviewTransactionItem[]
 }
 
+interface SuggestionItem {
+  label: string
+  count: number
+  matchField: MatchField
+}
+
 const authStore = useAuthStore()
 const categories = ref<CategoryItem[]>([])
 const rules = ref<CategoryRuleItem[]>([])
@@ -112,6 +118,34 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const categorySaving = ref(false)
 const editingCategoryId = ref<number | null>(null)
 let successMessageTimer: ReturnType<typeof setTimeout> | null = null
+
+const suggestionStopWords = new Set([
+  'gmbh',
+  'mbh',
+  'europe',
+  'sepa',
+  'zahlung',
+  'lastschrift',
+  'basislastschrift',
+  'girokartenumsatz',
+  'geschäft',
+  'ausgang',
+  'eingang',
+  'service',
+  'services',
+  'online',
+  'onlinezahlung',
+  'deutschland',
+  'niederlassung',
+  'danke',
+  'sagt',
+  'boulevard',
+  'royal',
+  'luxembourg',
+  'konto',
+  'card',
+  'zahlungsempfänger',
+])
 
 const categoryForm = ref<{
   name: string
@@ -199,12 +233,83 @@ const visibleCategoryStats = computed(() => {
 })
 
 const activeRuleCount = computed(() => rules.value.filter((rule) => rule.is_active).length)
-const displayedTransactions = computed(() =>
-  previewMode.value === 'all' ? allTransactions.value : previewTransactions.value,
+const uncategorizedTransactions = computed(() =>
+  allTransactions.value.filter((transaction) => transaction.category_id === null),
 )
+const displayedTransactions = computed(() => {
+  if (previewMode.value === 'all') {
+    return allTransactions.value
+  }
+
+  if (previewMode.value === 'uncategorized') {
+    return uncategorizedTransactions.value
+  }
+
+  return previewTransactions.value
+})
 const matchingTransactionIds = computed(
   () => new Set(previewTransactions.value.map((transaction) => transaction.id)),
 )
+const uncategorizedCounterpartySuggestions = computed<SuggestionItem[]>(() => {
+  const counts = new Map<string, SuggestionItem>()
+
+  for (const transaction of uncategorizedTransactions.value) {
+    const label = transaction.counterparty_name?.trim()
+
+    if (!label) {
+      continue
+    }
+
+    const key = label.toLocaleLowerCase('de')
+    const existing = counts.get(key)
+
+    if (existing) {
+      existing.count += 1
+      continue
+    }
+
+    counts.set(key, {
+      label,
+      count: 1,
+      matchField: 'counterparty',
+    })
+  }
+
+  return Array.from(counts.values())
+    .filter((item) => item.count >= 3)
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, 'de'))
+    .slice(0, 8)
+})
+const uncategorizedKeywordSuggestions = computed<SuggestionItem[]>(() => {
+  const counts = new Map<string, number>()
+
+  for (const transaction of uncategorizedTransactions.value) {
+    const combinedText = `${transaction.counterparty_name ?? ''} ${transaction.description ?? ''}`
+    const tokens = new Set(
+      combinedText
+        .toLocaleLowerCase('de')
+        .split(/[^\p{L}\p{N}]+/u)
+        .map((token) => token.trim())
+        .filter(
+          (token) => token.length >= 4 && !suggestionStopWords.has(token) && !/^\d+$/.test(token),
+        ),
+    )
+
+    for (const token of tokens) {
+      counts.set(token, (counts.get(token) ?? 0) + 1)
+    }
+  }
+
+  return Array.from(counts.entries())
+    .filter(([, count]) => count >= 3)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'de'))
+    .slice(0, 12)
+    .map(([label, count]) => ({
+      label,
+      count,
+      matchField: 'both' as const,
+    }))
+})
 const ruleHitCounts = computed(() => {
   const counts = new Map<number, number>()
 
@@ -694,9 +799,19 @@ async function loadAllTransactions() {
 function setPreviewMode(mode: PreviewMode) {
   previewMode.value = mode
 
-  if (mode === 'all' && !allTransactions.value.length && !allTransactionsLoading.value) {
+  if (mode !== 'matches' && !allTransactions.value.length && !allTransactionsLoading.value) {
     void loadAllTransactions()
   }
+}
+
+function applySuggestion(suggestion: SuggestionItem) {
+  activeTab.value = 'editor'
+  previewMode.value = 'matches'
+  error.value = ''
+  form.value.pattern = suggestion.label
+  form.value.match_field = suggestion.matchField
+  successMessage.value = `Vorschlag „${suggestion.label}“ als Regeltest übernommen.`
+  void previewRule(false)
 }
 
 async function previewRule(showSuccess = true) {
@@ -743,6 +858,23 @@ async function previewRule(showSuccess = true) {
   }
 }
 
+async function runRuleApplication() {
+  if (!authStore.token) {
+    return null
+  }
+
+  const response = await apiFetch<ApplyRulesResponse>(
+    '/api/category-rules/apply',
+    { method: 'POST' },
+    authStore.token,
+  )
+
+  applySummary.value = response.summary
+  await loadAllTransactions()
+
+  return response.summary
+}
+
 async function saveRule() {
   if (!authStore.token) {
     return
@@ -783,11 +915,19 @@ async function saveRule() {
 
     populateFormFromRule(response.rule)
     activeTab.value = 'editor'
-    successMessage.value = isEditing ? 'Regel aktualisiert.' : 'Regel gespeichert.'
+
+    applying.value = true
+    await runRuleApplication()
+
+    successMessage.value = isEditing
+      ? 'Regel aktualisiert und automatisch angewendet.'
+      : 'Regel gespeichert und automatisch angewendet.'
+
     await previewRule(false)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Regel konnte nicht gespeichert werden.'
   } finally {
+    applying.value = false
     saving.value = false
   }
 }
@@ -863,13 +1003,7 @@ async function applyRules() {
   successMessage.value = ''
 
   try {
-    const response = await apiFetch<ApplyRulesResponse>(
-      '/api/category-rules/apply',
-      { method: 'POST' },
-      authStore.token,
-    )
-
-    applySummary.value = response.summary
+    await runRuleApplication()
     successMessage.value = 'Automatische Kategorisierung wurde ausgeführt.'
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Regeln konnten nicht angewendet werden.'
@@ -1351,7 +1485,8 @@ watch(
               <div>
                 <h3>{{ editingRuleId ? 'Regel bearbeiten' : 'Neue Regel anlegen' }}</h3>
                 <p class="muted">
-                  Teste die Regel rechts gegen echte Buchungen, bevor du sie speicherst.
+                  Teste die Regel rechts gegen echte Buchungen. Beim Speichern wird sie direkt auf
+                  vorhandene Buchungen angewendet.
                 </p>
               </div>
             </div>
@@ -1409,13 +1544,13 @@ watch(
                 >
                   {{ previewLoading ? 'Testet…' : 'Regel testen' }}
                 </button>
-                <button class="primary-button" type="submit" :disabled="saving">
+                <button class="primary-button" type="submit" :disabled="saving || applying">
                   {{
-                    saving
+                    saving || applying
                       ? 'Speichert…'
                       : editingRuleId
-                        ? 'Regel aktualisieren'
-                        : 'Regel speichern'
+                        ? 'Regel aktualisieren & anwenden'
+                        : 'Regel speichern & anwenden'
                   }}
                 </button>
                 <button
@@ -1467,13 +1602,21 @@ watch(
           <div class="section-header">
             <div>
               <h3>
-                {{ previewMode === 'all' ? 'Alle Transaktionen' : 'Treffer zur aktuellen Regel' }}
+                {{
+                  previewMode === 'all'
+                    ? 'Alle Transaktionen'
+                    : previewMode === 'uncategorized'
+                      ? 'Ohne Kategorie'
+                      : 'Treffer zur aktuellen Regel'
+                }}
               </h3>
               <p class="muted">
                 {{
                   previewMode === 'all'
-                    ? 'Du siehst alle Buchungen. Mit dem Schalter kannst du wieder nur die Treffer der aktuellen Regel anzeigen.'
-                    : 'Hier siehst du direkt, welche Buchungen von deinem aktuellen Suchstring erfasst werden.'
+                    ? 'Du siehst alle Buchungen. Mit dem Schalter kannst du gezielt die unzugeordneten Fälle isolieren.'
+                    : previewMode === 'uncategorized'
+                      ? 'Hier siehst du nur Buchungen ohne Kategorie plus häufige Muster, aus denen sich neue Regeln ableiten lassen.'
+                      : 'Hier siehst du direkt, welche Buchungen von deinem aktuellen Suchstring erfasst werden.'
                 }}
               </p>
             </div>
@@ -1489,6 +1632,14 @@ watch(
                 </button>
                 <button
                   class="ghost-button small-button"
+                  :class="{ 'is-active': previewMode === 'uncategorized' }"
+                  type="button"
+                  @click="setPreviewMode('uncategorized')"
+                >
+                  Ohne Kategorie
+                </button>
+                <button
+                  class="ghost-button small-button"
                   :class="{ 'is-active': previewMode === 'all' }"
                   type="button"
                   @click="setPreviewMode('all')"
@@ -1500,84 +1651,140 @@ watch(
                 {{
                   previewMode === 'all'
                     ? `${displayedTransactions.length} Buchungen`
-                    : `${previewSummary?.matched_transactions ?? displayedTransactions.length} Treffer`
+                    : previewMode === 'uncategorized'
+                      ? `${displayedTransactions.length} ohne Kategorie`
+                      : `${previewSummary?.matched_transactions ?? displayedTransactions.length} Treffer`
                 }}
               </span>
             </div>
           </div>
 
-          <p v-if="previewMode === 'all' && allTransactionsLoading" class="muted preview-empty">
-            Alle Transaktionen werden geladen…
+          <p v-if="previewMode !== 'matches' && allTransactionsLoading" class="muted preview-empty">
+            {{
+              previewMode === 'all'
+                ? 'Alle Transaktionen werden geladen…'
+                : 'Unkategorisierte Buchungen werden geladen…'
+            }}
           </p>
           <p
             v-else-if="
-              previewMode !== 'all' && activeTab !== 'editor' && !previewTransactions.length
+              previewMode === 'matches' && activeTab !== 'editor' && !previewTransactions.length
             "
             class="muted preview-empty"
           >
             Wähle links eine Regel aus oder erstelle eine neue. Im Editor kannst du die Regel
             testen.
           </p>
-          <p v-else-if="previewMode !== 'all' && previewLoading" class="muted preview-empty">
+          <p v-else-if="previewMode === 'matches' && previewLoading" class="muted preview-empty">
             Treffer werden gesucht…
           </p>
           <p v-else-if="!displayedTransactions.length" class="muted preview-empty">
             {{
               previewMode === 'all'
                 ? 'Es sind noch keine Buchungen vorhanden.'
-                : 'Für die aktuelle Regel wurden noch keine passenden Buchungen gefunden.'
+                : previewMode === 'uncategorized'
+                  ? 'Aktuell sind alle sichtbaren Buchungen bereits kategorisiert.'
+                  : 'Für die aktuelle Regel wurden noch keine passenden Buchungen gefunden.'
             }}
           </p>
 
-          <div v-else class="preview-list">
-            <section v-for="group in previewGroups" :key="group.dateKey" class="day-group">
-              <header class="day-header">
-                <strong>{{ group.dateLabel }}</strong>
-                <span class="day-balance">
-                  {{
-                    previewMode === 'all'
-                      ? `${group.items.length} Buchungen`
-                      : `${group.items.length} Treffer`
-                  }}
-                </span>
-              </header>
+          <div v-else>
+            <div v-if="previewMode === 'uncategorized'" class="summary-box suggestion-box">
+              <p>
+                <strong>{{ uncategorizedTransactions.length }} Buchungen ohne Kategorie</strong>
+              </p>
+              <p class="muted">
+                Klicke auf eine häufige Gegenstelle oder ein Wort, um den Begriff direkt als
+                Regeltest zu übernehmen.
+              </p>
 
-              <article v-for="transaction in group.items" :key="transaction.id" class="preview-row">
-                <div class="transaction-main">
-                  <strong>{{ transaction.counterparty_name || 'Ohne Gegenstelle' }}</strong>
-                  <p>
-                    {{ transaction.description || formatSourceType(transaction.source_system) }}
-                  </p>
-                  <span class="muted small-text">
-                    {{ transaction.account_name || '—' }} ·
-                    {{ formatSourceType(transaction.source_system) }}
-                  </span>
-                </div>
-                <div class="transaction-meta">
-                  <span
-                    v-if="previewMode === 'all' && form.pattern.trim()"
-                    class="status-pill"
-                    :class="{ inactive: !matchingTransactionIds.has(transaction.id) }"
+              <div v-if="uncategorizedCounterpartySuggestions.length" class="suggestion-group">
+                <strong>Häufige Gegenstellen</strong>
+                <div class="suggestion-chips">
+                  <button
+                    v-for="suggestion in uncategorizedCounterpartySuggestions"
+                    :key="`cp-${suggestion.label}`"
+                    class="ghost-button small-button suggestion-chip"
+                    type="button"
+                    @click="applySuggestion(suggestion)"
                   >
+                    {{ suggestion.label }} · {{ suggestion.count }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="uncategorizedKeywordSuggestions.length" class="suggestion-group">
+                <strong>Häufige Wörter</strong>
+                <div class="suggestion-chips">
+                  <button
+                    v-for="suggestion in uncategorizedKeywordSuggestions"
+                    :key="`kw-${suggestion.label}`"
+                    class="ghost-button small-button suggestion-chip"
+                    type="button"
+                    @click="applySuggestion(suggestion)"
+                  >
+                    {{ suggestion.label }} · {{ suggestion.count }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="preview-list">
+              <section v-for="group in previewGroups" :key="group.dateKey" class="day-group">
+                <header class="day-header">
+                  <strong>{{ group.dateLabel }}</strong>
+                  <span class="day-balance">
                     {{
-                      matchingTransactionIds.has(transaction.id) ? 'Trifft Regel' : 'Kein Treffer'
+                      previewMode === 'all'
+                        ? `${group.items.length} Buchungen`
+                        : previewMode === 'uncategorized'
+                          ? `${group.items.length} ohne Kategorie`
+                          : `${group.items.length} Treffer`
                     }}
                   </span>
-                  <span
-                    class="status-pill"
-                    :class="{ inactive: (transaction.category_source ?? 'none') === 'none' }"
-                  >
-                    {{ formatCategorySource(transaction.category_source) }}
-                    <template v-if="transaction.category_name">
-                      · {{ transaction.category_name }}
-                    </template>
-                  </span>
-                  <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
-                    {{ formatMoney(transaction.amount, transaction.currency) }}
-                  </strong>
-                </div>
-              </article>
-            </section>
+                </header>
+
+                <article
+                  v-for="transaction in group.items"
+                  :key="transaction.id"
+                  class="preview-row"
+                >
+                  <div class="transaction-main">
+                    <strong>{{ transaction.counterparty_name || 'Ohne Gegenstelle' }}</strong>
+                    <p>
+                      {{ transaction.description || formatSourceType(transaction.source_system) }}
+                    </p>
+                    <span class="muted small-text">
+                      {{ transaction.account_name || '—' }} ·
+                      {{ formatSourceType(transaction.source_system) }}
+                    </span>
+                  </div>
+                  <div class="transaction-meta">
+                    <span
+                      v-if="previewMode === 'all' && form.pattern.trim()"
+                      class="status-pill"
+                      :class="{ inactive: !matchingTransactionIds.has(transaction.id) }"
+                    >
+                      {{
+                        matchingTransactionIds.has(transaction.id) ? 'Trifft Regel' : 'Kein Treffer'
+                      }}
+                    </span>
+                    <span
+                      class="status-pill"
+                      :class="{ inactive: (transaction.category_source ?? 'none') === 'none' }"
+                    >
+                      {{ formatCategorySource(transaction.category_source) }}
+                      <template v-if="transaction.category_name">
+                        · {{ transaction.category_name }}
+                      </template>
+                    </span>
+                    <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
+                      {{ formatMoney(transaction.amount, transaction.currency) }}
+                    </strong>
+                  </div>
+                </article>
+              </section>
+            </div>
           </div>
         </section>
       </section>
@@ -1869,6 +2076,26 @@ watch(
 
 .quickstart-box {
   margin-top: 0.1rem;
+}
+
+.suggestion-box {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.suggestion-group {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.suggestion-chip {
+  justify-content: flex-start;
 }
 
 .mini-stat span {

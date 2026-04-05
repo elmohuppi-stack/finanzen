@@ -44,6 +44,56 @@ class CsvImportService
         ];
     }
 
+    /**
+     * @param  array{detected_type: string, delimiter: string, header_row_index: int|null, headers: list<string>}|null  $preview
+     * @return array{account: array{id: int|null, name: string|null, account_type: string|null}, recognized_rows: int, imported_rows: int, skipped_rows: int, duplicate_rows: int, unreadable_rows: int, error_rows: int, note: string}
+     */
+    public function inspectImport(User $user, string $content, ?array $preview = null): array
+    {
+        $preview ??= $this->preview($content);
+
+        if ($preview['detected_type'] === 'unknown' || $preview['header_row_index'] === null || $preview['headers'] === []) {
+            return [
+                'account' => [
+                    'id' => null,
+                    'name' => null,
+                    'account_type' => null,
+                ],
+                'recognized_rows' => 0,
+                'imported_rows' => 0,
+                'skipped_rows' => 0,
+                'duplicate_rows' => 0,
+                'unreadable_rows' => 0,
+                'error_rows' => 0,
+                'note' => 'Das CSV-Format konnte nicht sicher erkannt werden.',
+            ];
+        }
+
+        $account = $this->resolveAccount(
+            $user,
+            $content,
+            $preview['detected_type'],
+            $preview['delimiter'],
+            false,
+        );
+        $stats = $this->collectImportStats($account, null, $content, $preview);
+
+        return [
+            'account' => [
+                'id' => $account->id,
+                'name' => $account->name,
+                'account_type' => $account->account_type,
+            ],
+            'recognized_rows' => $stats['recognized_rows'],
+            'imported_rows' => $stats['imported_rows'],
+            'skipped_rows' => $stats['skipped_rows'],
+            'duplicate_rows' => $stats['duplicate_rows'],
+            'unreadable_rows' => $stats['unreadable_rows'],
+            'error_rows' => $stats['error_rows'],
+            'note' => $this->buildImportNote($stats, true),
+        ];
+    }
+
     public function import(User $user, string $fileName, string $content): FinanceImport
     {
         $preview = $this->preview($content);
@@ -74,15 +124,15 @@ class CsvImportService
                 'started_at' => now(),
             ]);
 
-            [$importedRows, $skippedRows, $errorRows] = $this->persistTransactions($account, $import, $content, $preview);
+            $stats = $this->persistTransactions($account, $import, $content, $preview);
 
             $import->forceFill([
-                'status' => $errorRows > 0 && $importedRows === 0 ? 'failed' : 'completed',
-                'imported_rows' => $importedRows,
-                'skipped_rows' => $skippedRows,
-                'error_rows' => $errorRows,
+                'status' => $stats['error_rows'] > 0 && $stats['imported_rows'] === 0 ? 'failed' : 'completed',
+                'imported_rows' => $stats['imported_rows'],
+                'skipped_rows' => $stats['skipped_rows'],
+                'error_rows' => $stats['error_rows'],
                 'finished_at' => now(),
-                'notes' => sprintf('CSV import %s: %d importiert, %d übersprungen, %d Fehler.', $preview['detected_type'], $importedRows, $skippedRows, $errorRows),
+                'notes' => $this->buildImportNote($stats),
             ])->save();
 
             return $import->fresh(['account']);
@@ -91,9 +141,18 @@ class CsvImportService
 
     /**
      * @param  array{detected_type: string, delimiter: string, header_row_index: int|null, headers: list<string>}  $preview
-     * @return array{0: int, 1: int, 2: int}
+     * @return array{recognized_rows: int, imported_rows: int, skipped_rows: int, duplicate_rows: int, unreadable_rows: int, error_rows: int}
      */
     private function persistTransactions(Account $account, FinanceImport $import, string $content, array $preview): array
+    {
+        return $this->collectImportStats($account, $import, $content, $preview);
+    }
+
+    /**
+     * @param  array{detected_type: string, delimiter: string, header_row_index: int|null, headers: list<string>}  $preview
+     * @return array{recognized_rows: int, imported_rows: int, skipped_rows: int, duplicate_rows: int, unreadable_rows: int, error_rows: int}
+     */
+    private function collectImportStats(Account $account, ?FinanceImport $import, string $content, array $preview): array
     {
         $lines = preg_split('/\r\n|\r|\n/', $content) ?: [];
         $headerRowIndex = $preview['header_row_index'];
@@ -102,11 +161,20 @@ class CsvImportService
         $sourceType = $preview['detected_type'];
 
         if ($headerRowIndex === null) {
-            return [0, 0, 0];
+            return [
+                'recognized_rows' => 0,
+                'imported_rows' => 0,
+                'skipped_rows' => 0,
+                'duplicate_rows' => 0,
+                'unreadable_rows' => 0,
+                'error_rows' => 0,
+            ];
         }
 
+        $recognizedRows = 0;
         $importedRows = 0;
-        $skippedRows = 0;
+        $duplicateRows = 0;
+        $unreadableRows = 0;
         $errorRows = 0;
 
         foreach (array_slice($lines, $headerRowIndex + 1) as $line) {
@@ -120,8 +188,7 @@ class CsvImportService
             $payload = array_combine($headers, array_slice($paddedRow, 0, count($headers)));
 
             if (! is_array($payload)) {
-                $errorRows++;
-
+                $unreadableRows++;
                 continue;
             }
 
@@ -129,27 +196,30 @@ class CsvImportService
                 $normalized = $this->normalizeRow($payload, $sourceType);
 
                 if ($normalized === null) {
-                    $skippedRows++;
-
+                    $unreadableRows++;
                     continue;
                 }
 
-                $alreadyImported = Transaction::query()
+                $recognizedRows++;
+
+                $alreadyImported = $account->exists
+                    && Transaction::query()
                     ->where('account_id', $account->id)
                     ->where('transaction_hash', $normalized['transaction_hash'])
                     ->exists();
 
                 if ($alreadyImported) {
-                    $skippedRows++;
-
+                    $duplicateRows++;
                     continue;
                 }
 
-                Transaction::query()->create([
-                    ...$normalized,
-                    'account_id' => $account->id,
-                    'finance_import_id' => $import->id,
-                ]);
+                if ($import !== null) {
+                    Transaction::query()->create([
+                        ...$normalized,
+                        'account_id' => $account->id,
+                        'finance_import_id' => $import->id,
+                    ]);
+                }
 
                 $importedRows++;
             } catch (\Throwable) {
@@ -157,11 +227,23 @@ class CsvImportService
             }
         }
 
-        return [$importedRows, $skippedRows, $errorRows];
+        return [
+            'recognized_rows' => $recognizedRows,
+            'imported_rows' => $importedRows,
+            'skipped_rows' => $duplicateRows + $unreadableRows,
+            'duplicate_rows' => $duplicateRows,
+            'unreadable_rows' => $unreadableRows,
+            'error_rows' => $errorRows,
+        ];
     }
 
-    private function resolveAccount(User $user, string $content, string $sourceType, string $delimiter): Account
-    {
+    private function resolveAccount(
+        User $user,
+        string $content,
+        string $sourceType,
+        string $delimiter,
+        bool $createIfMissing = true,
+    ): Account {
         $lines = preg_split('/\r\n|\r|\n/', $content) ?: [];
         $contextRow = [];
 
@@ -175,9 +257,9 @@ class CsvImportService
         }
 
         return match ($sourceType) {
-            'dkb_giro' => $this->resolveDkbGiroAccount($user, $contextRow),
-            'dkb_visa' => $this->resolveDkbVisaAccount($user, $contextRow),
-            'paypal' => $this->resolvePayPalAccount($user),
+            'dkb_giro' => $this->resolveDkbGiroAccount($user, $contextRow, $createIfMissing),
+            'dkb_visa' => $this->resolveDkbVisaAccount($user, $contextRow, $createIfMissing),
+            'paypal' => $this->resolvePayPalAccount($user, $createIfMissing),
             default => throw ValidationException::withMessages([
                 'file' => 'Das CSV-Format wird derzeit noch nicht als echter Import unterstützt.',
             ]),
@@ -187,64 +269,70 @@ class CsvImportService
     /**
      * @param  list<string>  $contextRow
      */
-    private function resolveDkbGiroAccount(User $user, array $contextRow): Account
+    private function resolveDkbGiroAccount(User $user, array $contextRow, bool $createIfMissing = true): Account
     {
         $name = $contextRow[0] ?? 'DKB Girokonto';
         $ibanMasked = $this->maskIban($contextRow[1] ?? null);
 
-        return Account::query()->firstOrCreate(
-            [
-                'user_id' => $user->id,
-                'account_type' => 'checking_account',
-                'name' => $name,
-            ],
-            [
-                'institution' => 'DKB',
-                'iban_masked' => $ibanMasked,
-                'currency' => 'EUR',
-                'metadata' => ['source_type' => 'dkb_giro'],
-            ],
-        );
+        $attributes = [
+            'user_id' => $user->id,
+            'account_type' => 'checking_account',
+            'name' => $name,
+        ];
+        $defaults = [
+            'institution' => 'DKB',
+            'iban_masked' => $ibanMasked,
+            'currency' => 'EUR',
+            'metadata' => ['source_type' => 'dkb_giro'],
+        ];
+
+        return $createIfMissing
+            ? Account::query()->firstOrCreate($attributes, $defaults)
+            : Account::query()->firstOrNew($attributes, $defaults);
     }
 
     /**
      * @param  list<string>  $contextRow
      */
-    private function resolveDkbVisaAccount(User $user, array $contextRow): Account
+    private function resolveDkbVisaAccount(User $user, array $contextRow, bool $createIfMissing = true): Account
     {
         $cardLabel = trim(implode(' ', array_filter([
             $contextRow[1] ?? 'DKB Visa',
             $contextRow[2] ?? null,
         ])));
 
-        return Account::query()->firstOrCreate(
-            [
-                'user_id' => $user->id,
-                'account_type' => 'credit_card',
-                'name' => $cardLabel !== '' ? $cardLabel : 'DKB Visa',
-            ],
-            [
-                'institution' => 'DKB',
-                'currency' => 'EUR',
-                'metadata' => ['source_type' => 'dkb_visa'],
-            ],
-        );
+        $attributes = [
+            'user_id' => $user->id,
+            'account_type' => 'credit_card',
+            'name' => $cardLabel !== '' ? $cardLabel : 'DKB Visa',
+        ];
+        $defaults = [
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+            'metadata' => ['source_type' => 'dkb_visa'],
+        ];
+
+        return $createIfMissing
+            ? Account::query()->firstOrCreate($attributes, $defaults)
+            : Account::query()->firstOrNew($attributes, $defaults);
     }
 
-    private function resolvePayPalAccount(User $user): Account
+    private function resolvePayPalAccount(User $user, bool $createIfMissing = true): Account
     {
-        return Account::query()->firstOrCreate(
-            [
-                'user_id' => $user->id,
-                'account_type' => 'paypal_account',
-                'name' => 'PayPal',
-            ],
-            [
-                'institution' => 'PayPal',
-                'currency' => 'EUR',
-                'metadata' => ['source_type' => 'paypal'],
-            ],
-        );
+        $attributes = [
+            'user_id' => $user->id,
+            'account_type' => 'paypal_account',
+            'name' => 'PayPal',
+        ];
+        $defaults = [
+            'institution' => 'PayPal',
+            'currency' => 'EUR',
+            'metadata' => ['source_type' => 'paypal'],
+        ];
+
+        return $createIfMissing
+            ? Account::query()->firstOrCreate($attributes, $defaults)
+            : Account::query()->firstOrNew($attributes, $defaults);
     }
 
     /**
@@ -460,7 +548,7 @@ class CsvImportService
         $currency = strtoupper(trim((string) ($row['Währung'] ?? 'EUR')));
         $counterparty = $this->firstFilled(
             $row['Name'] ?? null,
-            $row['Absender E-Mail-Adresse'] ?? null,
+            $row['Absender E-Mail-Adresse'] ?? ($row['Von E-Mail-Adresse'] ?? null),
             $row['Beschreibung'] ?? null,
         );
         $description = $this->joinTextParts([
@@ -481,12 +569,64 @@ class CsvImportService
             externalId: $row['Transaktionscode'] ?? null,
             sourceReference: $row['Zugehöriger Transaktionscode'] ?? null,
             metadata: [
-                'fee' => $row['Entgelt'] ?? null,
+                'fee' => $row['Entgelt'] ?? ($row['Gebühr'] ?? null),
                 'gross' => $row['Brutto'] ?? null,
-                'balance' => $row['Guthaben'] ?? null,
+                'balance' => $row['Guthaben'] ?? ($row['Saldo'] ?? null),
                 'timezone' => $row['Zeitzone'] ?? null,
             ],
         );
+    }
+
+    /**
+     * @param  array{recognized_rows: int, imported_rows: int, skipped_rows: int, duplicate_rows: int, unreadable_rows: int, error_rows: int}  $stats
+     */
+    private function buildImportNote(array $stats, bool $isPreview = false): string
+    {
+        if ($stats['imported_rows'] === 0) {
+            if ($stats['duplicate_rows'] > 0 && $stats['unreadable_rows'] === 0 && $stats['error_rows'] === 0) {
+                return $isPreview
+                    ? 'Beim Import würden keine neuen Umsätze übernommen, weil alle erkannten Buchungen bereits vorhanden sind.'
+                    : 'Es wurden keine neuen Umsätze importiert, weil alle erkannten Buchungen bereits vorhanden sind.';
+            }
+
+            if ($stats['duplicate_rows'] === 0 && $stats['unreadable_rows'] > 0 && $stats['error_rows'] === 0) {
+                return $isPreview
+                    ? 'Beim Import würden keine neuen Umsätze übernommen, weil die Buchungszeilen nicht sauber gelesen werden konnten.'
+                    : 'Es wurden keine neuen Umsätze importiert, weil die Buchungszeilen nicht sauber gelesen werden konnten.';
+            }
+
+            if ($stats['duplicate_rows'] > 0 && $stats['unreadable_rows'] > 0) {
+                return $isPreview
+                    ? sprintf('Beim Import würden keine neuen Umsätze übernommen: %d Zeilen sind bereits bekannt, %d konnten nicht gelesen werden.', $stats['duplicate_rows'], $stats['unreadable_rows'])
+                    : sprintf('Es wurden keine neuen Umsätze importiert: %d Zeilen sind bereits bekannt, %d konnten nicht gelesen werden.', $stats['duplicate_rows'], $stats['unreadable_rows']);
+            }
+
+            if ($stats['error_rows'] > 0) {
+                return $isPreview
+                    ? 'Beim Import würden keine neuen Umsätze übernommen, weil beim Einlesen Fehler auftreten.'
+                    : 'Es wurden keine neuen Umsätze importiert, weil beim Einlesen Fehler aufgetreten sind.';
+            }
+
+            return $isPreview
+                ? 'Beim Import würden keine neuen Umsätze übernommen.'
+                : 'Es wurden keine neuen Umsätze importiert.';
+        }
+
+        $parts = [sprintf('%d neu', $stats['imported_rows'])];
+
+        if ($stats['duplicate_rows'] > 0) {
+            $parts[] = sprintf('%d bereits bekannt', $stats['duplicate_rows']);
+        }
+
+        if ($stats['unreadable_rows'] > 0) {
+            $parts[] = sprintf('%d nicht lesbar', $stats['unreadable_rows']);
+        }
+
+        if ($stats['error_rows'] > 0) {
+            $parts[] = sprintf('%d Fehler', $stats['error_rows']);
+        }
+
+        return ($isPreview ? 'Voraussichtliches Ergebnis: ' : 'Import abgeschlossen: ') . implode(', ', $parts) . '.';
     }
 
     /**
@@ -649,6 +789,7 @@ class CsvImportService
      */
     private function parseRow(string $line, string $delimiter): array
     {
+        $line = preg_replace('/^\xEF\xBB\xBF/', '', $line) ?? $line;
         $line = trim($line);
 
         if ($line === '' || $line === '""' || $line === "''") {
@@ -658,7 +799,7 @@ class CsvImportService
         $values = str_getcsv($line, $delimiter, '"', '\\');
 
         return array_map(
-            static fn(?string $value): string => trim((string) $value),
+            static fn(?string $value): string => trim(ltrim((string) $value, "\u{FEFF}")),
             $values ?: [],
         );
     }

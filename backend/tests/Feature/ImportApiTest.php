@@ -131,9 +131,38 @@ CSV;
         $response->assertCreated();
         $response->assertJsonPath('import.imported_rows', 0);
         $response->assertJsonPath('import.skipped_rows', 1);
+        $response->assertJsonPath(
+            'import.notes',
+            'Es wurden keine neuen Umsätze importiert, weil alle erkannten Buchungen bereits vorhanden sind.',
+        );
 
         $this->assertDatabaseCount('finance_imports', 2);
         $this->assertDatabaseCount('transactions', 1);
+    }
+
+    public function test_authenticated_user_can_import_paypal_csv_with_utf8_bom(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $content = "\xEF\xBB\xBF\"Datum\",\"Uhrzeit\",\"Zeitzone\",\"Beschreibung\",\"Währung\",\"Brutto\",\"Gebühr\",\"Netto\",\"Saldo\",\"Transaktionscode\",\"Von E-Mail-Adresse\",\"Name\",\"Zugehöriger Transaktionscode\",\"Rechnungsnummer\"\n"
+            . "\"21.01.2026\",\"19:23:08\",\"Europe/Berlin\",\"PayPal Express-Zahlung\",\"EUR\",\"-11,99\",\"0,00\",\"-11,99\",\"-11,99\",\"6W3730272P751531C\",\"robloxpaypal@roblox.com\",\"ROBLOX Corporation\",\"\",\"INV-2026-01\"\n";
+
+        $file = UploadedFile::fake()->createWithContent('paypal.csv', $content);
+
+        $response = $this->postJson('/api/imports', [
+            'file' => $file,
+        ]);
+
+        $response->assertCreated()->assertJsonPath('import.source_type', 'paypal');
+        $response->assertJsonPath('import.status', 'completed');
+        $response->assertJsonPath('import.imported_rows', 1);
+        $response->assertJsonPath('import.skipped_rows', 0);
+
+        $this->assertDatabaseHas('transactions', [
+            'source_system' => 'paypal',
+            'counterparty_name' => 'ROBLOX Corporation',
+            'direction' => 'debit',
+        ]);
     }
 
     public function test_authenticated_user_can_fetch_import_history(): void

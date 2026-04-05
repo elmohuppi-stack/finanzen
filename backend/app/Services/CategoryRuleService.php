@@ -121,10 +121,22 @@ class CategoryRuleService
             ['category_name' => 'Gehalt', 'pattern' => 'gehaltsabrechnung', 'match_field' => 'description', 'priority' => '240', 'is_active' => '1', 'name' => 'Gehaltsabrechnung'],
             ['category_name' => 'Lebensmittel', 'pattern' => 'rewe', 'match_field' => 'both', 'priority' => '150', 'is_active' => '1', 'name' => 'Supermarkt'],
             ['category_name' => 'Lebensmittel', 'pattern' => 'edeka', 'match_field' => 'both', 'priority' => '150', 'is_active' => '1', 'name' => 'Supermarkt'],
+            ['category_name' => 'Lebensmittel', 'pattern' => 'lidl', 'match_field' => 'both', 'priority' => '150', 'is_active' => '1', 'name' => 'Discounter'],
+            ['category_name' => 'Lebensmittel', 'pattern' => 'aldi', 'match_field' => 'both', 'priority' => '150', 'is_active' => '1', 'name' => 'Discounter'],
+            ['category_name' => 'Drogerie', 'pattern' => 'rossmann', 'match_field' => 'both', 'priority' => '140', 'is_active' => '1', 'name' => 'Drogerie'],
+            ['category_name' => 'Drogerie', 'pattern' => 'dm drogerie', 'match_field' => 'both', 'priority' => '140', 'is_active' => '1', 'name' => 'Drogerie'],
+            ['category_name' => 'Mobilität', 'pattern' => 'aral', 'match_field' => 'counterparty', 'priority' => '140', 'is_active' => '1', 'name' => 'Tanken'],
+            ['category_name' => 'Mobilität', 'pattern' => 'esso', 'match_field' => 'counterparty', 'priority' => '140', 'is_active' => '1', 'name' => 'Tanken'],
+            ['category_name' => 'Mobilität', 'pattern' => 'jet', 'match_field' => 'counterparty', 'priority' => '140', 'is_active' => '1', 'name' => 'Tanken'],
+            ['category_name' => 'Mobilität', 'pattern' => 'total', 'match_field' => 'counterparty', 'priority' => '140', 'is_active' => '1', 'name' => 'Tanken'],
+            ['category_name' => 'Wohnen', 'pattern' => 'enstroga', 'match_field' => 'both', 'priority' => '180', 'is_active' => '1', 'name' => 'Strom'],
             ['category_name' => 'Transfer', 'pattern' => 'umbuchung', 'match_field' => 'both', 'priority' => '260', 'is_active' => '1', 'name' => 'Interner Transfer'],
             ['category_name' => 'Transfer', 'pattern' => 'kreditkartenabrechnung', 'match_field' => 'description', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
             ['category_name' => 'Transfer', 'pattern' => 'ausgleich kreditkarte', 'match_field' => 'both', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
             ['category_name' => 'Transfer', 'pattern' => 'visa abrechnung', 'match_field' => 'both', 'priority' => '280', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
+            ['category_name' => 'Transfer', 'pattern' => 'paypal europe', 'match_field' => 'counterparty', 'priority' => '300', 'is_active' => '1', 'name' => 'PayPal-Ausgleich'],
+            ['category_name' => 'Transfer', 'pattern' => 'abbuchung vom paypal-konto', 'match_field' => 'both', 'priority' => '320', 'is_active' => '1', 'name' => 'PayPal-Ausgleich'],
+            ['category_name' => 'Transfer', 'pattern' => 'gutschrift auf paypal-konto', 'match_field' => 'both', 'priority' => '320', 'is_active' => '1', 'name' => 'PayPal-Ausgleich'],
         ]);
     }
 
@@ -464,6 +476,9 @@ class CategoryRuleService
         $defaults = [
             ['name' => 'Gehalt', 'category_type' => 'income', 'color' => '#16a34a', 'sort_order' => 1],
             ['name' => 'Lebensmittel', 'category_type' => 'expense', 'color' => '#059669', 'sort_order' => 4],
+            ['name' => 'Drogerie', 'category_type' => 'expense', 'color' => '#ec4899', 'sort_order' => 5],
+            ['name' => 'Mobilität', 'category_type' => 'expense', 'color' => '#0ea5e9', 'sort_order' => 6],
+            ['name' => 'Wohnen', 'category_type' => 'expense', 'color' => '#f59e0b', 'sort_order' => 7],
             ['name' => 'Transfer', 'category_type' => 'transfer', 'color' => '#64748b', 'sort_order' => 20],
         ];
 

@@ -14,6 +14,20 @@ interface ImportPreviewResponse {
   header_row_index: number | null
   headers: string[]
   sample_rows: Array<Record<string, string>>
+  analysis: {
+    account: {
+      id: number | null
+      name: string | null
+      account_type: string | null
+    }
+    recognized_rows: number
+    imported_rows: number
+    skipped_rows: number
+    duplicate_rows: number
+    unreadable_rows: number
+    error_rows: number
+    note: string
+  }
 }
 
 interface ImportRunResponse {
@@ -28,6 +42,7 @@ interface ImportRunResponse {
     error_rows: number
     started_at: string | null
     finished_at: string | null
+    notes: string | null
     account: {
       id: number | null
       name: string | null
@@ -50,6 +65,7 @@ interface ImportHistoryResponse {
     period_to: string | null
     account_name: string | null
     account_type: string | null
+    notes: string | null
   }>
 }
 
@@ -77,13 +93,19 @@ const detectedLabel = computed(() => {
   }
 })
 
+const previewAnalysis = computed(() => preview.value?.analysis ?? null)
+
 const importResultMessage = computed(() => {
   if (!importResult.value) {
     return ''
   }
 
+  if (importResult.value.notes) {
+    return importResult.value.notes
+  }
+
   if (importResult.value.imported_rows === 0 && importResult.value.skipped_rows > 0) {
-    return 'Es wurden keine neuen Umsätze gefunden – die Datei war bereits importiert.'
+    return 'Es wurden keine neuen Umsätze gefunden – bitte den Hinweis unten prüfen.'
   }
 
   return 'Der Import wurde gespeichert und im Verlauf protokolliert.'
@@ -249,8 +271,8 @@ watch(
       <p class="label">CSV Import</p>
       <h2>Vorschau vor dem eigentlichen Import</h2>
       <p>
-        Hier wird zuerst nur erkannt, welches Format vorliegt und welche Kopfzeilen und
-        Beispielzeilen daraus gelesen werden.
+        Hier wird vorab geprüft, welches Format erkannt wurde, wie viele neue Buchungen zu erwarten
+        sind und warum gegebenenfalls nichts importiert würde.
       </p>
     </article>
 
@@ -285,7 +307,21 @@ watch(
           <strong>Trennzeichen:</strong> <code>{{ preview.delimiter }}</code>
         </li>
         <li><strong>Header-Zeile:</strong> {{ preview.header_row_index ?? 'nicht gefunden' }}</li>
+        <li v-if="previewAnalysis">
+          <strong>Zielkonto:</strong> {{ previewAnalysis.account.name ?? 'Automatisch erkannt' }}
+        </li>
       </ul>
+
+      <div v-if="previewAnalysis" class="hint-box">
+        <h4>Voraussichtliches Ergebnis</h4>
+        <ul class="meta-list">
+          <li><strong>Neu importierbar:</strong> {{ previewAnalysis.imported_rows }}</li>
+          <li><strong>Bereits bekannt:</strong> {{ previewAnalysis.duplicate_rows }}</li>
+          <li><strong>Nicht lesbar:</strong> {{ previewAnalysis.unreadable_rows }}</li>
+          <li><strong>Fehler:</strong> {{ previewAnalysis.error_rows }}</li>
+        </ul>
+        <p><strong>Hinweis:</strong> {{ previewAnalysis.note }}</p>
+      </div>
 
       <h4>Kopfzeilen</h4>
       <div class="chips">
@@ -314,8 +350,11 @@ watch(
     <article v-if="preview" class="card next-step">
       <h3>Nächster Schritt: importieren</h3>
       <p>
-        Wenn die Vorschau passt, kannst du die Datei jetzt wirklich in die Datenbank übernehmen.
-        Bereits bekannte Umsätze werden dabei duplicate-safe übersprungen.
+        {{
+          previewAnalysis?.imported_rows === 0
+            ? previewAnalysis.note
+            : 'Wenn die Vorschau passt, kannst du die Datei jetzt wirklich in die Datenbank übernehmen. Bereits bekannte Umsätze werden dabei duplicate-safe übersprungen.'
+        }}
       </p>
       <button type="button" :disabled="importLoading || !selectedFile" @click="startImport">
         {{ importLoading ? 'Importiere…' : 'Import jetzt speichern' }}
@@ -331,6 +370,7 @@ watch(
         <li><strong>Neu importiert:</strong> {{ importResult.imported_rows }}</li>
         <li><strong>Übersprungen:</strong> {{ importResult.skipped_rows }}</li>
         <li><strong>Fehler:</strong> {{ importResult.error_rows }}</li>
+        <li v-if="importResult.notes"><strong>Warum:</strong> {{ importResult.notes }}</li>
       </ul>
 
       <div class="action-row">
@@ -373,6 +413,7 @@ watch(
               <td>
                 {{ entry.imported_rows }} neu · {{ entry.skipped_rows }} übersprungen ·
                 {{ entry.error_rows }} Fehler
+                <div v-if="entry.notes" class="muted small-text">{{ entry.notes }}</div>
               </td>
             </tr>
           </tbody>
@@ -420,6 +461,14 @@ watch(
   background: rgba(5, 150, 105, 0.08);
 }
 
+.hint-box {
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-strong);
+}
+
 .section-header h3 {
   margin-bottom: 0.25rem;
 }
@@ -464,7 +513,8 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.muted {
+.muted,
+.small-text {
   color: var(--color-text-muted);
 }
 

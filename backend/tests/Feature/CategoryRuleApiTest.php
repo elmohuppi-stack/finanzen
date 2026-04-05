@@ -179,12 +179,12 @@ class CategoryRuleApiTest extends TestCase
         $secondImport = $this->postJson('/api/category-rules/import-defaults');
 
         $firstImport->assertOk();
-        $firstImport->assertJsonPath('summary.imported_rules', 9);
+        $firstImport->assertJsonPath('summary.imported_rules', 21);
         $firstImport->assertJsonPath('summary.updated_rules', 0);
 
         $secondImport->assertOk();
         $secondImport->assertJsonPath('summary.imported_rules', 0);
-        $secondImport->assertJsonPath('summary.updated_rules', 9);
+        $secondImport->assertJsonPath('summary.updated_rules', 21);
 
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
@@ -197,6 +197,34 @@ class CategoryRuleApiTest extends TestCase
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
             'pattern' => 'rewe',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'lidl',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'rossmann',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'enstroga',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'aral',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'paypal europe',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'abbuchung vom paypal-konto',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'gutschrift auf paypal-konto',
         ]);
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
@@ -488,5 +516,92 @@ class CategoryRuleApiTest extends TestCase
         $this->assertNotNull($link);
         $this->assertContains($settlementTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
         $this->assertContains($settlementCounterTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
+    }
+
+    public function test_default_rules_link_paypal_settlement_transfers_without_hiding_real_payments(): void
+    {
+        $user = User::factory()->create();
+
+        $giroAccount = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $paypalAccount = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'PayPal',
+            'account_type' => 'paypal_account',
+            'institution' => 'PayPal',
+            'currency' => 'EUR',
+        ]);
+
+        $giroSettlement = Transaction::query()->create([
+            'account_id' => $giroAccount->id,
+            'booking_date' => '2026-04-08',
+            'value_date' => '2026-04-08',
+            'amount' => '-11.99',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'PayPal Europe S.a.r.l. et Cie S.C.A',
+            'description' => 'Abbuchung vom PayPal-Konto',
+            'transaction_hash' => hash('sha256', 'paypal-giro-settlement'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        $paypalSettlement = Transaction::query()->create([
+            'account_id' => $paypalAccount->id,
+            'booking_date' => '2026-04-08',
+            'value_date' => '2026-04-08',
+            'amount' => '11.99',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'Bankkonto',
+            'description' => 'Bankgutschrift auf PayPal-Konto',
+            'transaction_hash' => hash('sha256', 'paypal-account-settlement'),
+            'source_system' => 'paypal',
+        ]);
+
+        $paypalPayment = Transaction::query()->create([
+            'account_id' => $paypalAccount->id,
+            'booking_date' => '2026-04-08',
+            'value_date' => '2026-04-08',
+            'amount' => '-11.99',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Netflix Services Germany GmbH',
+            'description' => 'PayPal Express-Zahlung',
+            'transaction_hash' => hash('sha256', 'paypal-real-payment'),
+            'source_system' => 'paypal',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/category-rules/import-defaults')->assertOk();
+        $this->postJson('/api/category-rules/apply')->assertOk();
+
+        $giroSettlement->refresh();
+        $paypalSettlement->refresh();
+        $paypalPayment->refresh();
+
+        $this->assertTrue($giroSettlement->is_transfer);
+        $this->assertTrue($paypalSettlement->is_transfer);
+        $this->assertTrue($giroSettlement->is_hidden_from_cashflow);
+        $this->assertTrue($paypalSettlement->is_hidden_from_cashflow);
+        $this->assertSame('paypal_settlement', data_get($giroSettlement->metadata, 'transfer_kind'));
+        $this->assertSame('paypal_settlement', data_get($paypalSettlement->metadata, 'transfer_kind'));
+        $this->assertNotNull($giroSettlement->transfer_group_id);
+        $this->assertSame($giroSettlement->transfer_group_id, $paypalSettlement->transfer_group_id);
+        $this->assertFalse($paypalPayment->is_transfer);
+
+        $link = TransactionLink::query()
+            ->where('link_type', 'paypal_settlement')
+            ->first();
+
+        $this->assertNotNull($link);
+        $this->assertContains($giroSettlement->id, [$link->from_transaction_id, $link->to_transaction_id]);
+        $this->assertContains($paypalSettlement->id, [$link->from_transaction_id, $link->to_transaction_id]);
     }
 }
