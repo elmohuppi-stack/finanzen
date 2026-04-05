@@ -14,6 +14,90 @@ class TransactionCategoryApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_authenticated_user_can_create_update_and_delete_custom_category(): void
+    {
+        $user = User::factory()->create();
+
+        Sanctum::actingAs($user);
+
+        $createResponse = $this->postJson('/api/categories', [
+            'name' => 'Sport & Fitness',
+            'category_type' => 'expense',
+            'color' => '#f97316',
+        ]);
+
+        $createResponse->assertCreated();
+        $categoryId = $createResponse->json('category.id');
+
+        $this->assertDatabaseHas('categories', [
+            'id' => $categoryId,
+            'user_id' => $user->id,
+            'name' => 'Sport & Fitness',
+            'slug' => 'sport-fitness',
+            'category_type' => 'expense',
+            'color' => '#f97316',
+            'is_system' => false,
+        ]);
+
+        $updateResponse = $this->patchJson('/api/categories/' . $categoryId, [
+            'name' => 'Fitness',
+            'category_type' => 'expense',
+            'color' => '#ea580c',
+        ]);
+
+        $updateResponse->assertOk();
+        $updateResponse->assertJsonPath('category.name', 'Fitness');
+        $updateResponse->assertJsonPath('category.slug', 'fitness');
+
+        $deleteResponse = $this->deleteJson('/api/categories/' . $categoryId);
+
+        $deleteResponse->assertOk();
+        $deleteResponse->assertJsonPath('deleted', true);
+        $this->assertDatabaseMissing('categories', [
+            'id' => $categoryId,
+        ]);
+    }
+
+    public function test_user_cannot_manage_system_or_foreign_categories(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+
+        $systemCategory = Category::query()->create([
+            'user_id' => null,
+            'name' => 'Lebensmittel',
+            'slug' => 'lebensmittel',
+            'category_type' => 'expense',
+            'color' => '#059669',
+            'is_system' => true,
+            'sort_order' => 10,
+        ]);
+
+        $foreignCategory = Category::query()->create([
+            'user_id' => $otherUser->id,
+            'name' => 'Reisen',
+            'slug' => 'reisen',
+            'category_type' => 'expense',
+            'color' => '#2563eb',
+            'is_system' => false,
+            'sort_order' => 20,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->patchJson('/api/categories/' . $systemCategory->id, [
+            'name' => 'Soll gesperrt bleiben',
+        ])->assertNotFound();
+
+        $this->deleteJson('/api/categories/' . $systemCategory->id)->assertNotFound();
+
+        $this->patchJson('/api/categories/' . $foreignCategory->id, [
+            'name' => 'Fremd',
+        ])->assertNotFound();
+
+        $this->deleteJson('/api/categories/' . $foreignCategory->id)->assertNotFound();
+    }
+
     public function test_authenticated_user_can_assign_a_category_to_a_transaction(): void
     {
         $user = User::factory()->create();

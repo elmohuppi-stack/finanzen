@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CategoryRuleController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\ImportController;
@@ -27,6 +28,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     Route::post('/imports/detect', [ImportController::class, 'detect']);
     Route::post('/imports', [ImportController::class, 'store']);
+    Route::post('/categories', [CategoryController::class, 'store']);
+    Route::patch('/categories/{categoryId}', [CategoryController::class, 'update']);
+    Route::delete('/categories/{categoryId}', [CategoryController::class, 'destroy']);
     Route::get('/category-rules', [CategoryRuleController::class, 'index']);
     Route::get('/category-rules/export', [CategoryRuleController::class, 'export']);
     Route::post('/category-rules', [CategoryRuleController::class, 'store']);

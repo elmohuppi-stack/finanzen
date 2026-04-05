@@ -6,7 +6,10 @@ import { apiFetch } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
 type MatchField = 'description' | 'counterparty' | 'both'
-type WorkbenchTab = 'categories' | 'rules' | 'editor'
+type WorkbenchTab = 'categories' | 'rules' | 'datasets' | 'editor'
+type CategorySubTab = 'overview' | 'list' | 'form'
+type CategorySort = 'rules' | 'name' | 'type'
+type PreviewMode = 'matches' | 'all'
 
 interface CategoryItem {
   id: number
@@ -83,6 +86,7 @@ const authStore = useAuthStore()
 const categories = ref<CategoryItem[]>([])
 const rules = ref<CategoryRuleItem[]>([])
 const previewTransactions = ref<PreviewTransactionItem[]>([])
+const allTransactions = ref<PreviewTransactionItem[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const applying = ref(false)
@@ -91,6 +95,7 @@ const exporting = ref(false)
 const resetting = ref(false)
 const seedingDefaults = ref(false)
 const previewLoading = ref(false)
+const allTransactionsLoading = ref(false)
 const error = ref('')
 const successMessage = ref('')
 const applySummary = ref<ApplyRulesResponse['summary'] | null>(null)
@@ -98,7 +103,25 @@ const previewSummary = ref<RulePreviewResponse['summary'] | null>(null)
 const editingRuleId = ref<number | null>(null)
 const importMode = ref<'merge' | 'replace'>('merge')
 const activeTab = ref<WorkbenchTab>('categories')
+const categorySubTab = ref<CategorySubTab>('list')
+const previewMode = ref<PreviewMode>('matches')
+const selectedRuleCategoryId = ref('all')
+const categorySort = ref<CategorySort>('rules')
+const hideEmptyCategories = ref(true)
 const fileInput = ref<HTMLInputElement | null>(null)
+const categorySaving = ref(false)
+const editingCategoryId = ref<number | null>(null)
+let successMessageTimer: ReturnType<typeof setTimeout> | null = null
+
+const categoryForm = ref<{
+  name: string
+  category_type: string
+  color: string
+}>({
+  name: '',
+  category_type: 'expense',
+  color: '',
+})
 
 const form = ref<{
   category_id: string
@@ -119,12 +142,33 @@ const form = ref<{
 const sortedRules = computed(() => {
   return [...rules.value].sort((left, right) => {
     return (
+      (left.category_name ?? '').localeCompare(right.category_name ?? '', 'de') ||
       Number(right.is_active) - Number(left.is_active) ||
       right.priority - left.priority ||
       left.pattern.localeCompare(right.pattern, 'de')
     )
   })
 })
+
+const filteredRules = computed(() => {
+  if (selectedRuleCategoryId.value === 'all') {
+    return sortedRules.value
+  }
+
+  return sortedRules.value.filter(
+    (rule) => String(rule.category_id) === selectedRuleCategoryId.value,
+  )
+})
+
+const selectedRuleCategory = computed(
+  () =>
+    categories.value.find((category) => String(category.id) === selectedRuleCategoryId.value) ??
+    undefined,
+)
+
+const currentEditableCategory = computed(
+  () => categories.value.find((category) => category.id === editingCategoryId.value) ?? null,
+)
 
 const categoryStats = computed(() => {
   return categories.value.map((category) => ({
@@ -133,7 +177,70 @@ const categoryStats = computed(() => {
   }))
 })
 
+const visibleCategoryStats = computed(() => {
+  const entries = hideEmptyCategories.value
+    ? categoryStats.value.filter((category) => category.ruleCount > 0)
+    : categoryStats.value
+
+  return [...entries].sort((left, right) => {
+    if (categorySort.value === 'name') {
+      return left.name.localeCompare(right.name, 'de')
+    }
+
+    if (categorySort.value === 'type') {
+      return (
+        left.category_type.localeCompare(right.category_type, 'de') ||
+        left.name.localeCompare(right.name, 'de')
+      )
+    }
+
+    return right.ruleCount - left.ruleCount || left.name.localeCompare(right.name, 'de')
+  })
+})
+
 const activeRuleCount = computed(() => rules.value.filter((rule) => rule.is_active).length)
+const displayedTransactions = computed(() =>
+  previewMode.value === 'all' ? allTransactions.value : previewTransactions.value,
+)
+const matchingTransactionIds = computed(
+  () => new Set(previewTransactions.value.map((transaction) => transaction.id)),
+)
+const ruleHitCounts = computed(() => {
+  const counts = new Map<number, number>()
+
+  for (const rule of rules.value) {
+    if (!rule.is_active) {
+      counts.set(rule.id, 0)
+      continue
+    }
+
+    const normalizedPattern = rule.pattern.trim().toLocaleLowerCase('de')
+
+    if (!normalizedPattern) {
+      counts.set(rule.id, 0)
+      continue
+    }
+
+    const hits = allTransactions.value.filter((transaction) => {
+      const description = (transaction.description ?? '').toLocaleLowerCase('de')
+      const counterparty = (transaction.counterparty_name ?? '').toLocaleLowerCase('de')
+
+      if (rule.match_field === 'description') {
+        return description.includes(normalizedPattern)
+      }
+
+      if (rule.match_field === 'counterparty') {
+        return counterparty.includes(normalizedPattern)
+      }
+
+      return description.includes(normalizedPattern) || counterparty.includes(normalizedPattern)
+    }).length
+
+    counts.set(rule.id, hits)
+  }
+
+  return counts
+})
 
 const previewGroups = computed(() => {
   const groups = new Map<
@@ -141,7 +248,7 @@ const previewGroups = computed(() => {
     { dateKey: string; dateLabel: string; items: PreviewTransactionItem[] }
   >()
 
-  for (const transaction of previewTransactions.value) {
+  for (const transaction of displayedTransactions.value) {
     const dateKey = transaction.booking_date ?? 'ohne-datum'
 
     if (!groups.has(dateKey)) {
@@ -157,6 +264,16 @@ const previewGroups = computed(() => {
 
   return Array.from(groups.values())
 })
+
+function resetCategoryForm() {
+  editingCategoryId.value = null
+  categorySubTab.value = 'form'
+  categoryForm.value = {
+    name: '',
+    category_type: 'expense',
+    color: '',
+  }
+}
 
 function resetForm(nextCategoryId = '') {
   editingRuleId.value = null
@@ -182,8 +299,9 @@ function populateFormFromRule(rule: CategoryRuleItem) {
   }
 }
 
-function startCreateRule(category?: CategoryItem) {
+function startCreateRule(category?: CategoryItem, showAllTransactions = false) {
   activeTab.value = 'editor'
+  previewMode.value = showAllTransactions ? 'all' : 'matches'
   successMessage.value = ''
   error.value = ''
   previewSummary.value = null
@@ -191,8 +309,42 @@ function startCreateRule(category?: CategoryItem) {
   resetForm(category ? String(category.id) : '')
 }
 
+function showRulesForCategory(categoryId: number | string = 'all') {
+  activeTab.value = 'rules'
+  selectedRuleCategoryId.value = String(categoryId)
+  successMessage.value = ''
+  error.value = ''
+}
+
+function openCategory(category: CategoryItem & { ruleCount: number }) {
+  if (category.ruleCount > 0) {
+    showRulesForCategory(category.id)
+    return
+  }
+
+  startCreateRule(category)
+}
+
+function startEditCategory(category: CategoryItem) {
+  if (category.is_system) {
+    return
+  }
+
+  categorySubTab.value = 'form'
+  editingCategoryId.value = category.id
+  categoryForm.value = {
+    name: category.name,
+    category_type: category.category_type,
+    color: category.color ?? '',
+  }
+
+  successMessage.value = ''
+  error.value = ''
+}
+
 function startEditRule(rule: CategoryRuleItem) {
   activeTab.value = 'editor'
+  previewMode.value = 'matches'
   successMessage.value = ''
   error.value = ''
   populateFormFromRule(rule)
@@ -426,14 +578,124 @@ async function loadRules() {
     categories.value = response.categories
     rules.value = response.rules
 
-    if (!form.value.category_id && response.categories[0]) {
-      form.value.category_id = String(response.categories[0].id)
+    const hasSelectedCategory = response.categories.some(
+      (category) => String(category.id) === form.value.category_id,
+    )
+
+    if (!hasSelectedCategory) {
+      form.value.category_id = String(response.categories[0]?.id || '')
+    }
+
+    if (
+      selectedRuleCategoryId.value !== 'all' &&
+      !response.categories.some((category) => String(category.id) === selectedRuleCategoryId.value)
+    ) {
+      selectedRuleCategoryId.value = 'all'
     }
   } catch (err) {
     error.value =
       err instanceof Error ? err.message : 'Kategorien und Regeln konnten nicht geladen werden.'
   } finally {
     loading.value = false
+  }
+}
+
+async function saveCategory() {
+  if (!authStore.token) {
+    return
+  }
+
+  categorySaving.value = true
+  error.value = ''
+  successMessage.value = ''
+
+  try {
+    const payload = {
+      name: categoryForm.value.name.trim(),
+      category_type: categoryForm.value.category_type,
+      color: categoryForm.value.color.trim() || null,
+    }
+
+    const isEditing = editingCategoryId.value !== null
+
+    await apiFetch<{ category: CategoryItem }>(
+      isEditing ? `/api/categories/${editingCategoryId.value}` : '/api/categories',
+      {
+        method: isEditing ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload),
+      },
+      authStore.token,
+    )
+
+    await loadRules()
+    resetCategoryForm()
+    successMessage.value = isEditing ? 'Kategorie aktualisiert.' : 'Kategorie erstellt.'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Kategorie konnte nicht gespeichert werden.'
+  } finally {
+    categorySaving.value = false
+  }
+}
+
+async function deleteCategory(category: CategoryItem) {
+  if (!authStore.token || category.is_system) {
+    return
+  }
+
+  if (!window.confirm(`Kategorie „${category.name}“ wirklich löschen?`)) {
+    return
+  }
+
+  error.value = ''
+  successMessage.value = ''
+
+  try {
+    await apiFetch<{ deleted: boolean }>(
+      `/api/categories/${category.id}`,
+      { method: 'DELETE' },
+      authStore.token,
+    )
+
+    if (editingCategoryId.value === category.id) {
+      resetCategoryForm()
+    }
+
+    await loadRules()
+    successMessage.value = 'Kategorie gelöscht.'
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Kategorie konnte nicht gelöscht werden.'
+  }
+}
+
+async function loadAllTransactions() {
+  if (!authStore.token) {
+    allTransactions.value = []
+    return
+  }
+
+  allTransactionsLoading.value = true
+  error.value = ''
+
+  try {
+    const response = await apiFetch<{ transactions: PreviewTransactionItem[] }>(
+      '/api/dashboard?view=all',
+      {},
+      authStore.token,
+    )
+
+    allTransactions.value = response.transactions ?? []
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Transaktionen konnten nicht geladen werden.'
+  } finally {
+    allTransactionsLoading.value = false
+  }
+}
+
+function setPreviewMode(mode: PreviewMode) {
+  previewMode.value = mode
+
+  if (mode === 'all' && !allTransactions.value.length && !allTransactionsLoading.value) {
+    void loadAllTransactions()
   }
 }
 
@@ -616,6 +878,22 @@ async function applyRules() {
   }
 }
 
+watch(successMessage, (message) => {
+  if (successMessageTimer) {
+    clearTimeout(successMessageTimer)
+    successMessageTimer = null
+  }
+
+  if (!message) {
+    return
+  }
+
+  successMessageTimer = setTimeout(() => {
+    successMessage.value = ''
+    successMessageTimer = null
+  }, 3000)
+})
+
 watch(
   () => authStore.token,
   async (token) => {
@@ -623,6 +901,10 @@ watch(
       categories.value = []
       rules.value = []
       previewTransactions.value = []
+      allTransactions.value = []
+      previewMode.value = 'matches'
+      selectedRuleCategoryId.value = 'all'
+      resetCategoryForm()
       resetForm()
       applySummary.value = null
       previewSummary.value = null
@@ -630,6 +912,7 @@ watch(
     }
 
     await loadRules()
+    await loadAllTransactions()
   },
   { immediate: true },
 )
@@ -637,12 +920,10 @@ watch(
 
 <template>
   <section class="stack">
-    <article class="card hero">
+    <article class="card hero hero--compact">
       <p class="eyebrow">Kategorien & Regeln</p>
-      <h2>Automatische Kategorisierung erklärbar machen</h2>
-      <p>
-        Definiere Suchstrings wie <strong>„lohn“</strong> oder <strong>„rewe“</strong>, teste die
-        Treffer direkt gegen echte Buchungen und speichere dann nur die Regeln, die wirklich passen.
+      <p class="hero-copy">
+        Regeln testen, Kategorien pflegen und den Regelsatz zentral verwalten.
       </p>
     </article>
 
@@ -682,6 +963,14 @@ watch(
             </button>
             <button
               class="tab-button"
+              :class="{ 'is-active': activeTab === 'datasets' }"
+              type="button"
+              @click="activeTab = 'datasets'"
+            >
+              Import / Export
+            </button>
+            <button
+              class="tab-button"
               :class="{ 'is-active': activeTab === 'editor' }"
               type="button"
               @click="activeTab = 'editor'"
@@ -690,16 +979,308 @@ watch(
             </button>
           </div>
 
-          <div v-if="successMessage" class="success-note">{{ successMessage }}</div>
+          <div v-if="successMessage && activeTab !== 'categories'" class="success-note">
+            {{ successMessage }}
+          </div>
           <div v-if="error" class="warning-note">{{ error }}</div>
 
           <template v-if="activeTab === 'categories'">
+            <div class="subtab-strip">
+              <button
+                class="subtab-button"
+                :class="{ 'is-active': categorySubTab === 'overview' }"
+                type="button"
+                @click="categorySubTab = 'overview'"
+              >
+                Kategorisierung
+              </button>
+              <button
+                class="subtab-button"
+                :class="{ 'is-active': categorySubTab === 'list' }"
+                type="button"
+                @click="categorySubTab = 'list'"
+              >
+                Deine Kategorien
+              </button>
+              <button
+                class="subtab-button"
+                :class="{ 'is-active': categorySubTab === 'form' }"
+                type="button"
+                @click="categorySubTab = 'form'"
+              >
+                {{ editingCategoryId ? 'Kategorie bearbeiten' : 'Neue Kategorie' }}
+              </button>
+            </div>
+
+            <template v-if="categorySubTab === 'overview'">
+              <div class="section-header section-gap">
+                <div>
+                  <h3>Kategorisierung</h3>
+                  <p class="muted">
+                    Hier führst du deine Regeln aus und behältst Treffer, aktive Regeln und
+                    Kategorien im Blick.
+                  </p>
+                </div>
+              </div>
+
+              <div v-if="successMessage" class="success-note">{{ successMessage }}</div>
+
+              <div class="stats-grid">
+                <div class="mini-stat">
+                  <span>Regeln gesamt</span>
+                  <strong>{{ rules.length }}</strong>
+                </div>
+                <div class="mini-stat">
+                  <span>Aktiv</span>
+                  <strong>{{ activeRuleCount }}</strong>
+                </div>
+                <div class="mini-stat">
+                  <span>Kategorien</span>
+                  <strong>{{ categories.length }}</strong>
+                </div>
+              </div>
+
+              <button
+                class="primary-button apply-button"
+                type="button"
+                :disabled="applying || activeRuleCount === 0"
+                @click="applyRules"
+              >
+                {{ applying ? 'Wird angewendet…' : 'Automatische Kategorisierung ausführen' }}
+              </button>
+
+              <div v-if="applySummary" class="summary-box">
+                <p><strong>Treffer:</strong> {{ applySummary.matched_transactions }}</p>
+                <p><strong>Aktualisiert:</strong> {{ applySummary.updated_transactions }}</p>
+                <p>
+                  <strong>Manuell übersprungen:</strong>
+                  {{ applySummary.skipped_manual_transactions }}
+                </p>
+              </div>
+            </template>
+
+            <template v-else-if="categorySubTab === 'form'">
+              <div class="section-header section-gap">
+                <div>
+                  <h3>
+                    {{ editingCategoryId ? 'Kategorie bearbeiten' : 'Neue Kategorie anlegen' }}
+                  </h3>
+                  <p class="muted">
+                    Eigene Kategorien kannst du hier anlegen, anpassen oder wieder entfernen.
+                  </p>
+                </div>
+                <button
+                  class="ghost-button small-button"
+                  type="button"
+                  @click="resetCategoryForm()"
+                >
+                  Neue Kategorie
+                </button>
+              </div>
+
+              <form class="rule-form" @submit.prevent="saveCategory">
+                <label>
+                  <span>Name</span>
+                  <input
+                    v-model="categoryForm.name"
+                    type="text"
+                    placeholder="z. B. Freizeit"
+                    required
+                  />
+                </label>
+
+                <label>
+                  <span>Typ</span>
+                  <select v-model="categoryForm.category_type">
+                    <option value="expense">Ausgabe</option>
+                    <option value="income">Einnahme</option>
+                    <option value="transfer">Transfer</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Farbe optional</span>
+                  <input v-model="categoryForm.color" type="text" placeholder="#f97316" />
+                </label>
+
+                <div class="form-actions">
+                  <button class="primary-button" type="submit" :disabled="categorySaving">
+                    {{
+                      categorySaving
+                        ? 'Speichert…'
+                        : editingCategoryId
+                          ? 'Kategorie aktualisieren'
+                          : 'Kategorie speichern'
+                    }}
+                  </button>
+                  <button
+                    v-if="currentEditableCategory"
+                    class="danger-button"
+                    type="button"
+                    @click="deleteCategory(currentEditableCategory)"
+                  >
+                    Kategorie löschen
+                  </button>
+                </div>
+              </form>
+            </template>
+
+            <template v-else>
+              <div class="section-header section-gap">
+                <div>
+                  <h3>Kategorien</h3>
+                  <p class="muted">
+                    Ein Klick zeigt entweder die vorhandenen Regeln oder legt direkt eine neue Regel
+                    für diese Kategorie an.
+                  </p>
+                </div>
+                <div class="category-list-toolbar">
+                  <label class="inline-field inline-field--compact">
+                    <span>Sortierung</span>
+                    <select v-model="categorySort">
+                      <option value="rules">Meiste Regeln zuerst</option>
+                      <option value="name">Name A–Z</option>
+                      <option value="type">Typ</option>
+                    </select>
+                  </label>
+                  <label class="toggle-chip">
+                    <input v-model="hideEmptyCategories" type="checkbox" />
+                    <span>Kategorien ohne Regeln ausblenden</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="category-list compact-grid">
+                <article
+                  v-for="category in visibleCategoryStats"
+                  :key="category.id"
+                  class="category-card"
+                >
+                  <button class="category-card__main" type="button" @click="openCategory(category)">
+                    <div>
+                      <strong>{{ category.name }}</strong>
+                      <p>{{ formatCategoryType(category.category_type) }}</p>
+                    </div>
+                    <span>{{ category.ruleCount }} Regeln</span>
+                  </button>
+
+                  <div class="category-card__actions">
+                    <span v-if="category.is_system" class="status-pill">System</span>
+                    <template v-else>
+                      <button
+                        class="ghost-button small-button"
+                        type="button"
+                        @click="startEditCategory(category)"
+                      >
+                        Bearbeiten
+                      </button>
+                      <button
+                        class="danger-button small-button"
+                        type="button"
+                        @click="deleteCategory(category)"
+                      >
+                        Löschen
+                      </button>
+                    </template>
+                  </div>
+                </article>
+              </div>
+              <p v-if="!visibleCategoryStats.length" class="muted preview-empty">
+                {{
+                  hideEmptyCategories
+                    ? 'Aktuell gibt es keine Kategorien mit Regeln.'
+                    : 'Noch keine Kategorien vorhanden.'
+                }}
+              </p>
+            </template>
+          </template>
+
+          <template v-else-if="activeTab === 'rules'">
             <div class="section-header">
               <div>
-                <h3>Regelsatz verwalten</h3>
+                <h3>Vorhandene Regeln</h3>
                 <p class="muted">
-                  Importiere Default-Regeln, experimentiere per CSV und setze deinen Regelsatz bei
-                  Bedarf komplett zurück.
+                  Regeln sind nach Kategorien sortiert. Über den Filter kannst du gezielt nur eine
+                  Kategorie ansehen.
+                </p>
+              </div>
+            </div>
+
+            <div class="dataset-toolbar">
+              <label class="inline-field">
+                <span>Kategorie filtern</span>
+                <select v-model="selectedRuleCategoryId">
+                  <option value="all">Alle Kategorien</option>
+                  <option
+                    v-for="category in categories"
+                    :key="category.id"
+                    :value="String(category.id)"
+                  >
+                    {{ category.name }}
+                  </option>
+                </select>
+              </label>
+            </div>
+
+            <div v-if="filteredRules.length" class="rule-list">
+              <article v-for="rule in filteredRules" :key="rule.id" class="rule-card">
+                <div class="rule-card__top">
+                  <div class="rule-card__headline">
+                    <strong>{{ rule.category_name || '—' }}</strong>
+                    <span class="muted small-text">
+                      · {{ rule.name || formatMatchField(rule.match_field) }}
+                    </span>
+                  </div>
+                  <div class="rule-card__badges">
+                    <span v-if="rule.is_active" class="status-pill rule-hit-pill">
+                      {{ ruleHitCounts.get(rule.id) ?? 0 }} Treffer
+                    </span>
+                    <span class="status-pill" :class="{ inactive: !rule.is_active }">
+                      {{ rule.is_active ? 'Aktiv' : 'Pausiert' }}
+                    </span>
+                  </div>
+                </div>
+
+                <p class="rule-pattern">
+                  <code>{{ rule.pattern }}</code>
+                </p>
+                <p class="muted small-text">
+                  Suche in {{ formatMatchField(rule.match_field) }} · Priorität {{ rule.priority }}
+                </p>
+
+                <div class="table-actions">
+                  <button
+                    class="ghost-button small-button"
+                    type="button"
+                    @click="startEditRule(rule)"
+                  >
+                    Bearbeiten
+                  </button>
+                  <button class="ghost-button small-button" type="button" @click="toggleRule(rule)">
+                    {{ rule.is_active ? 'Pausieren' : 'Aktivieren' }}
+                  </button>
+                  <button
+                    class="danger-button small-button"
+                    type="button"
+                    @click="deleteRule(rule)"
+                  >
+                    Löschen
+                  </button>
+                </div>
+              </article>
+            </div>
+            <p v-else>
+              Für {{ selectedRuleCategory?.name || 'diese Kategorie' }} gibt es noch keine Regeln.
+            </p>
+          </template>
+
+          <template v-else-if="activeTab === 'datasets'">
+            <div class="section-header">
+              <div>
+                <h3>CSV Import / Export</h3>
+                <p class="muted">
+                  Hier kannst du deinen kompletten Regelsatz sichern, importieren, mit
+                  Default-Regeln starten oder alles zurücksetzen.
                 </p>
               </div>
             </div>
@@ -757,126 +1338,12 @@ watch(
               @change="importRulesFromFile"
             />
 
-            <div v-if="!rules.length" class="summary-box quickstart-box">
+            <div class="summary-box quickstart-box">
               <p>
-                <strong>Schnellstart:</strong> Importiere einfach die Default-Regeln und passe sie
-                danach für deine eigenen Buchungstexte an.
+                <strong>Schnellstart:</strong> Importiere Default-Regeln als Ausgangspunkt oder
+                sichere deinen aktuellen Regelsatz als CSV.
               </p>
             </div>
-
-            <div class="stats-grid section-gap">
-              <div class="mini-stat">
-                <span>Regeln gesamt</span>
-                <strong>{{ rules.length }}</strong>
-              </div>
-              <div class="mini-stat">
-                <span>Aktiv</span>
-                <strong>{{ activeRuleCount }}</strong>
-              </div>
-              <div class="mini-stat">
-                <span>Kategorien</span>
-                <strong>{{ categories.length }}</strong>
-              </div>
-            </div>
-
-            <button
-              class="primary-button apply-button"
-              type="button"
-              :disabled="applying || activeRuleCount === 0"
-              @click="applyRules"
-            >
-              {{ applying ? 'Wird angewendet…' : 'Automatische Kategorisierung ausführen' }}
-            </button>
-
-            <div v-if="applySummary" class="summary-box">
-              <p><strong>Treffer:</strong> {{ applySummary.matched_transactions }}</p>
-              <p><strong>Aktualisiert:</strong> {{ applySummary.updated_transactions }}</p>
-              <p>
-                <strong>Manuell übersprungen:</strong>
-                {{ applySummary.skipped_manual_transactions }}
-              </p>
-            </div>
-
-            <div class="section-header section-gap">
-              <div>
-                <h3>Kategorien</h3>
-                <p class="muted">
-                  Klick auf eine Kategorie, um direkt eine neue Regel dafür anzulegen.
-                </p>
-              </div>
-            </div>
-
-            <div class="category-list">
-              <button
-                v-for="category in categoryStats"
-                :key="category.id"
-                class="category-card"
-                type="button"
-                @click="startCreateRule(category)"
-              >
-                <div>
-                  <strong>{{ category.name }}</strong>
-                  <p>{{ formatCategoryType(category.category_type) }}</p>
-                </div>
-                <span>{{ category.ruleCount }} Regeln</span>
-              </button>
-            </div>
-          </template>
-
-          <template v-else-if="activeTab === 'rules'">
-            <div class="section-header">
-              <div>
-                <h3>Vorhandene Regeln</h3>
-                <p class="muted">Bearbeite Regeln und springe dann direkt in den Editor.</p>
-              </div>
-              <button class="primary-button small-button" type="button" @click="startCreateRule()">
-                Neue Regel
-              </button>
-            </div>
-
-            <div v-if="sortedRules.length" class="rule-list">
-              <article v-for="rule in sortedRules" :key="rule.id" class="rule-card">
-                <div class="rule-card__top">
-                  <div>
-                    <strong>{{ rule.category_name || '—' }}</strong>
-                    <p class="muted small-text">
-                      {{ rule.name || formatMatchField(rule.match_field) }}
-                    </p>
-                  </div>
-                  <span class="status-pill" :class="{ inactive: !rule.is_active }">
-                    {{ rule.is_active ? 'Aktiv' : 'Pausiert' }}
-                  </span>
-                </div>
-
-                <p class="rule-pattern">
-                  <code>{{ rule.pattern }}</code>
-                </p>
-                <p class="muted small-text">
-                  Suche in {{ formatMatchField(rule.match_field) }} · Priorität {{ rule.priority }}
-                </p>
-
-                <div class="table-actions">
-                  <button
-                    class="ghost-button small-button"
-                    type="button"
-                    @click="startEditRule(rule)"
-                  >
-                    Bearbeiten
-                  </button>
-                  <button class="ghost-button small-button" type="button" @click="toggleRule(rule)">
-                    {{ rule.is_active ? 'Pausieren' : 'Aktivieren' }}
-                  </button>
-                  <button
-                    class="danger-button small-button"
-                    type="button"
-                    @click="deleteRule(rule)"
-                  >
-                    Löschen
-                  </button>
-                </div>
-              </article>
-            </div>
-            <p v-else>Noch keine Regeln vorhanden. Lege im Editor die erste Regel an.</p>
           </template>
 
           <template v-else>
@@ -951,7 +1418,35 @@ watch(
                         : 'Regel speichern'
                   }}
                 </button>
-                <button class="ghost-button" type="button" @click="startCreateRule()">
+                <button
+                  v-if="editingRuleId"
+                  class="danger-button"
+                  type="button"
+                  @click="
+                    deleteRule({
+                      id: editingRuleId,
+                      category_id: Number(form.category_id),
+                      category_name: selectedRuleCategory?.name ?? null,
+                      category_color: null,
+                      name: form.name || null,
+                      pattern: form.pattern,
+                      match_field: form.match_field,
+                      match_type: 'contains',
+                      priority: form.priority,
+                      is_active: form.is_active,
+                      created_at: null,
+                      updated_at: null,
+                      category_rule_id: null,
+                    } as CategoryRuleItem)
+                  "
+                >
+                  Regel löschen
+                </button>
+                <button
+                  class="ghost-button"
+                  type="button"
+                  @click="startCreateRule(undefined, true)"
+                >
                   Neu beginnen
                 </button>
               </div>
@@ -971,34 +1466,80 @@ watch(
         <section class="card workbench-preview">
           <div class="section-header">
             <div>
-              <h3>Treffer zur aktuellen Regel</h3>
+              <h3>
+                {{ previewMode === 'all' ? 'Alle Transaktionen' : 'Treffer zur aktuellen Regel' }}
+              </h3>
               <p class="muted">
-                Hier siehst du direkt, welche Buchungen von deinem aktuellen Suchstring erfasst
-                werden.
+                {{
+                  previewMode === 'all'
+                    ? 'Du siehst alle Buchungen. Mit dem Schalter kannst du wieder nur die Treffer der aktuellen Regel anzeigen.'
+                    : 'Hier siehst du direkt, welche Buchungen von deinem aktuellen Suchstring erfasst werden.'
+                }}
               </p>
             </div>
-            <span v-if="previewSummary" class="status-pill">
-              {{ previewSummary.matched_transactions }} Treffer
-            </span>
+            <div class="preview-toolbar">
+              <div class="preview-switch">
+                <button
+                  class="ghost-button small-button"
+                  :class="{ 'is-active': previewMode === 'matches' }"
+                  type="button"
+                  @click="setPreviewMode('matches')"
+                >
+                  Regel testen
+                </button>
+                <button
+                  class="ghost-button small-button"
+                  :class="{ 'is-active': previewMode === 'all' }"
+                  type="button"
+                  @click="setPreviewMode('all')"
+                >
+                  Alle Transaktionen
+                </button>
+              </div>
+              <span class="status-pill">
+                {{
+                  previewMode === 'all'
+                    ? `${displayedTransactions.length} Buchungen`
+                    : `${previewSummary?.matched_transactions ?? displayedTransactions.length} Treffer`
+                }}
+              </span>
+            </div>
           </div>
 
+          <p v-if="previewMode === 'all' && allTransactionsLoading" class="muted preview-empty">
+            Alle Transaktionen werden geladen…
+          </p>
           <p
-            v-if="activeTab !== 'editor' && !previewTransactions.length"
+            v-else-if="
+              previewMode !== 'all' && activeTab !== 'editor' && !previewTransactions.length
+            "
             class="muted preview-empty"
           >
             Wähle links eine Regel aus oder erstelle eine neue. Im Editor kannst du die Regel
             testen.
           </p>
-          <p v-else-if="previewLoading" class="muted preview-empty">Treffer werden gesucht…</p>
-          <p v-else-if="!previewTransactions.length" class="muted preview-empty">
-            Für die aktuelle Regel wurden noch keine passenden Buchungen gefunden.
+          <p v-else-if="previewMode !== 'all' && previewLoading" class="muted preview-empty">
+            Treffer werden gesucht…
+          </p>
+          <p v-else-if="!displayedTransactions.length" class="muted preview-empty">
+            {{
+              previewMode === 'all'
+                ? 'Es sind noch keine Buchungen vorhanden.'
+                : 'Für die aktuelle Regel wurden noch keine passenden Buchungen gefunden.'
+            }}
           </p>
 
           <div v-else class="preview-list">
             <section v-for="group in previewGroups" :key="group.dateKey" class="day-group">
               <header class="day-header">
                 <strong>{{ group.dateLabel }}</strong>
-                <span class="day-balance">{{ group.items.length }} Treffer</span>
+                <span class="day-balance">
+                  {{
+                    previewMode === 'all'
+                      ? `${group.items.length} Buchungen`
+                      : `${group.items.length} Treffer`
+                  }}
+                </span>
               </header>
 
               <article v-for="transaction in group.items" :key="transaction.id" class="preview-row">
@@ -1013,6 +1554,15 @@ watch(
                   </span>
                 </div>
                 <div class="transaction-meta">
+                  <span
+                    v-if="previewMode === 'all' && form.pattern.trim()"
+                    class="status-pill"
+                    :class="{ inactive: !matchingTransactionIds.has(transaction.id) }"
+                  >
+                    {{
+                      matchingTransactionIds.has(transaction.id) ? 'Trifft Regel' : 'Kein Treffer'
+                    }}
+                  </span>
                   <span
                     class="status-pill"
                     :class="{ inactive: (transaction.category_source ?? 'none') === 'none' }"
@@ -1054,6 +1604,22 @@ watch(
   background: linear-gradient(135deg, var(--color-accent-soft), var(--color-surface));
 }
 
+.hero--compact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-block: 0.8rem;
+}
+
+.hero--compact .eyebrow,
+.hero-copy {
+  margin: 0;
+}
+
+.hero-copy {
+  color: var(--color-text-muted);
+}
+
 .workbench {
   display: grid;
   gap: 1rem;
@@ -1069,6 +1635,9 @@ watch(
   display: grid;
   align-content: start;
   gap: 0.9rem;
+  max-height: min(760px, calc(100vh - 12rem));
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .workbench-preview {
@@ -1077,10 +1646,55 @@ watch(
   gap: 0.75rem;
 }
 
+.preview-toolbar {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: end;
+}
+
+.preview-switch {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.preview-switch .ghost-button.is-active {
+  background: var(--color-accent-strong);
+  color: white;
+  border-color: transparent;
+}
+
 .tab-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-bottom: 0.1rem;
+  background: var(--color-surface);
+}
+
+.subtab-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
+}
+
+.subtab-button {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  padding: 0.55rem 0.7rem;
+  font-weight: 600;
+}
+
+.subtab-button.is-active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  border-color: transparent;
 }
 
 .tab-button {
@@ -1118,6 +1732,17 @@ watch(
   margin-top: 0.35rem;
 }
 
+.category-list-toolbar {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.inline-field--compact {
+  min-width: 12rem;
+}
+
 .dataset-toolbar,
 .rule-form,
 .category-list,
@@ -1127,14 +1752,21 @@ watch(
   gap: 0.85rem;
 }
 
-.inline-field,
-.rule-form label {
-  display: grid;
-  gap: 0.35rem;
+.compact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .inline-field {
+  display: grid;
+  gap: 0.35rem;
   max-width: 20rem;
+}
+
+.rule-form label {
+  display: grid;
+  grid-template-columns: minmax(130px, 160px) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
 }
 
 .rule-form span,
@@ -1248,11 +1880,44 @@ watch(
 }
 
 .category-card {
+  display: grid;
+  gap: 0.7rem;
+  min-height: 82px;
+}
+
+.category-card__main {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
   align-items: center;
   text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.category-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-strong);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.toggle-chip input {
+  width: auto;
 }
 
 .category-card p,
@@ -1273,6 +1938,33 @@ watch(
   justify-content: space-between;
   gap: 0.75rem;
   align-items: center;
+}
+
+.rule-card__headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.rule-card__headline strong,
+.rule-card__headline span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rule-card__badges {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.rule-hit-pill {
+  background: var(--color-background-soft);
+  color: var(--color-text-muted);
 }
 
 .status-pill,
@@ -1379,7 +2071,7 @@ code {
 
 @media (min-width: 1100px) {
   .workbench {
-    grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+    grid-template-columns: minmax(520px, 1.15fr) minmax(0, 1fr);
   }
 }
 
@@ -1387,17 +2079,30 @@ code {
   .form-actions,
   .table-actions,
   .rule-card__top,
+  .rule-card__badges,
   .day-header,
   .preview-row,
-  .category-card {
+  .category-card__main,
+  .category-card__actions,
+  .toggle-chip,
+  .hero--compact,
+  .category-list-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .tab-strip {
+  .rule-form label {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+    align-items: stretch;
+  }
+
+  .tab-strip,
+  .subtab-strip {
     grid-template-columns: 1fr;
   }
 
+  .workbench-sidebar,
   .preview-list {
     max-height: none;
     overflow: visible;

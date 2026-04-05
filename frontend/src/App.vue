@@ -58,7 +58,6 @@ watch(theme, (value) => {
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">Finanzen</p>
         <h1>Finanzcockpit</h1>
       </div>
 
@@ -124,28 +123,19 @@ watch(theme, (value) => {
 .app-shell {
   width: min(100%, 1440px);
   margin: 0 auto;
-  padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+  padding: 0.85rem clamp(1rem, 2vw, 2rem) 1.5rem;
 }
 
 .topbar {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.eyebrow {
-  margin: 0;
-  color: var(--color-accent-strong);
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 h1 {
-  margin: 0.25rem 0 0;
-  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  margin: 0;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
   color: var(--color-heading);
 }
 
