@@ -64,7 +64,7 @@ class DashboardController extends Controller
         $balanceTransactions = (clone $accountScopedTransactionQuery)
             ->orderBy('booking_date')
             ->orderBy('id')
-            ->get(['id', 'account_id', 'booking_date', 'amount']);
+            ->get(['id', 'account_id', 'booking_date', 'amount', 'description', 'metadata', 'is_hidden_from_cashflow']);
 
         $availableMonths = $balanceTransactions
             ->pluck('booking_date')
@@ -89,15 +89,21 @@ class DashboardController extends Controller
             $filteredTransactionQuery->whereBetween('booking_date', $range);
         }
 
-        $income = (float) (clone $filteredTransactionQuery)
-            ->where('amount', '>', 0)
-            ->sum('amount');
+        $cashflowTransactions = (clone $filteredTransactionQuery)
+            ->get(['id', 'amount', 'description', 'metadata', 'is_hidden_from_cashflow']);
 
-        $expenseSum = (float) (clone $filteredTransactionQuery)
-            ->where('amount', '<', 0)
-            ->sum('amount');
+        $income = 0.0;
+        $expenses = 0.0;
 
-        $expenses = abs($expenseSum);
+        foreach ($cashflowTransactions as $cashflowTransaction) {
+            $cashflowAmount = $this->calculateCashflowAmount($cashflowTransaction);
+
+            if ($cashflowAmount > 0) {
+                $income += $cashflowAmount;
+            } elseif ($cashflowAmount < 0) {
+                $expenses += abs($cashflowAmount);
+            }
+        }
 
         $accountModels = Account::query()
             ->where('user_id', $user->id)
@@ -169,6 +175,8 @@ class DashboardController extends Controller
                     'counterparty_name' => $transaction->counterparty_name,
                     'description' => $transaction->description,
                     'amount' => number_format((float) $transaction->amount, 2, '.', ''),
+                    'cashflow_amount' => number_format($this->calculateCashflowAmount($transaction), 2, '.', ''),
+                    'cash_withdrawal_amount' => $this->formatCashWithdrawalAmount($transaction),
                     'currency' => $transaction->currency,
                     'direction' => $transaction->direction,
                     'source_system' => $transaction->source_system,
@@ -259,6 +267,50 @@ class DashboardController extends Controller
         ]);
     }
 
+    private function calculateCashflowAmount(Transaction $transaction): float
+    {
+        if ($transaction->is_hidden_from_cashflow) {
+            return 0.0;
+        }
+
+        $amount = (float) $transaction->amount;
+        $cashWithdrawalAmount = $this->extractCashWithdrawalAmount($transaction);
+
+        if ($cashWithdrawalAmount > 0 && $amount < 0 && abs($amount) > $cashWithdrawalAmount) {
+            return $amount + $cashWithdrawalAmount;
+        }
+
+        return $amount;
+    }
+
+    private function formatCashWithdrawalAmount(Transaction $transaction): ?string
+    {
+        $cashWithdrawalAmount = $this->extractCashWithdrawalAmount($transaction);
+
+        return $cashWithdrawalAmount > 0
+            ? number_format($cashWithdrawalAmount, 2, '.', '')
+            : null;
+    }
+
+    private function extractCashWithdrawalAmount(Transaction $transaction): float
+    {
+        $metadataAmount = data_get($transaction->metadata, 'cash_withdrawal_amount');
+
+        if (is_numeric($metadataAmount)) {
+            return round((float) $metadataAmount, 2);
+        }
+
+        $description = (string) ($transaction->description ?? '');
+
+        if (preg_match('/bargeldausz(?:ahlung)?\.?\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+)/iu', $description, $matches) !== 1) {
+            return 0.0;
+        }
+
+        $normalized = str_replace(['.', ','], ['', '.'], $matches[1]);
+
+        return is_numeric($normalized) ? round((float) $normalized, 2) : 0.0;
+    }
+
     private function buildMonthlyBalances($accountModels, $balanceTransactions, int $year)
     {
         $transactionsByAccount = $balanceTransactions->groupBy('account_id');
@@ -281,15 +333,19 @@ class DashboardController extends Controller
                         return $bookingDate !== null && $bookingDate->betweenIncluded($monthStart, $monthEnd);
                     });
 
-                    $monthlyIncome = (float) $monthlyTransactions
-                        ->filter(fn(Transaction $transaction): bool => (float) $transaction->amount > 0)
-                        ->sum('amount');
-                    $monthlyExpenseSum = (float) $monthlyTransactions
-                        ->filter(fn(Transaction $transaction): bool => (float) $transaction->amount < 0)
-                        ->sum('amount');
+                    $monthlyIncome = $monthlyTransactions->reduce(function (float $sum, Transaction $transaction): float {
+                        $cashflowAmount = $this->calculateCashflowAmount($transaction);
+
+                        return $cashflowAmount > 0 ? $sum + $cashflowAmount : $sum;
+                    }, 0.0);
+                    $monthlyExpenses = $monthlyTransactions->reduce(function (float $sum, Transaction $transaction): float {
+                        $cashflowAmount = $this->calculateCashflowAmount($transaction);
+
+                        return $cashflowAmount < 0 ? $sum + abs($cashflowAmount) : $sum;
+                    }, 0.0);
 
                     $income += $monthlyIncome;
-                    $expenses += abs($monthlyExpenseSum);
+                    $expenses += $monthlyExpenses;
 
                     $balanceAsOf = data_get($account->metadata, 'balance_as_of');
 

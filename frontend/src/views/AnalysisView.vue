@@ -30,6 +30,7 @@ interface DashboardResponse {
     id: number
     booking_date: string | null
     amount: string
+    cashflow_amount: string
     currency: string
     direction: string
     category_id: number | null
@@ -49,13 +50,15 @@ const categoryTotals = computed(() => {
   const totals = new Map<string, { label: string; total: number }>()
 
   for (const transaction of dashboard.value?.transactions ?? []) {
-    if (Number(transaction.amount) >= 0) {
+    const amount = Number(transaction.cashflow_amount ?? transaction.amount)
+
+    if (amount >= 0) {
       continue
     }
 
     const key = transaction.category_name || 'Unkategorisiert'
     const entry = totals.get(key) ?? { label: key, total: 0 }
-    entry.total += Math.abs(Number(transaction.amount))
+    entry.total += Math.abs(amount)
     totals.set(key, entry)
   }
 

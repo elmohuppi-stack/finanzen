@@ -473,6 +473,10 @@ class CsvImportService
             $row['Verwendungszweck'] ?? null,
             $row['Umsatztyp'] ?? null,
         ]);
+        $cashWithdrawalAmount = $this->extractCashWithdrawalAmount(
+            $row['Verwendungszweck'] ?? null,
+            $description,
+        );
         $externalId = $this->firstFilled(
             $row['Kundenreferenz'] ?? null,
             $row['Mandatsreferenz'] ?? null,
@@ -493,6 +497,7 @@ class CsvImportService
             metadata: [
                 'status' => $row['Status'] ?? null,
                 'umsatztyp' => $row['Umsatztyp'] ?? null,
+                'cash_withdrawal_amount' => $cashWithdrawalAmount,
             ],
         );
     }
@@ -580,6 +585,24 @@ class CsvImportService
                 'timezone' => $row['Zeitzone'] ?? null,
             ],
         );
+    }
+
+    private function extractCashWithdrawalAmount(?string ...$values): ?string
+    {
+        $text = trim(implode(' ', array_filter(array_map(
+            static fn(?string $value): string => trim((string) $value),
+            $values,
+        ))));
+
+        if ($text === '') {
+            return null;
+        }
+
+        if (preg_match('/bargeldausz(?:ahlung)?\.?\s*([0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}|[0-9]+,[0-9]{2}|[0-9]+)/iu', $text, $matches) !== 1) {
+            return null;
+        }
+
+        return $this->parseAmount($matches[1] ?? null);
     }
 
     /**

@@ -130,6 +130,43 @@ class DashboardApiTest extends TestCase
         $response->assertJsonPath('imports.0.period_to', '2026-04-04');
     }
 
+    public function test_dashboard_excludes_cashback_portions_from_cashflow_expenses(): void
+    {
+        $user = User::factory()->create();
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $transaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-02',
+            'value_date' => '2026-04-02',
+            'amount' => '-304.06',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'LIDL SAGT DANKE',
+            'description' => 'Debitk.5 2027-12 Bargeldausz. 200,00 EUR • Ausgang',
+            'transaction_hash' => hash('sha256', 'cashback-expense-summary'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/dashboard?view=month&month=2026-04');
+
+        $response->assertOk();
+        $response->assertJsonPath('summary.expenses', '104.06');
+        $response->assertJsonPath('summary.net', '-104.06');
+        $response->assertJsonPath('transactions.0.amount', '-304.06');
+        $response->assertJsonPath('transactions.0.cashflow_amount', '-104.06');
+        $response->assertJsonPath('transactions.0.cash_withdrawal_amount', '200.00');
+    }
+
     public function test_dashboard_returns_stored_balance_snapshots_for_accounts_and_months(): void
     {
         $user = User::factory()->create();

@@ -179,12 +179,12 @@ class CategoryRuleApiTest extends TestCase
         $secondImport = $this->postJson('/api/category-rules/import-defaults');
 
         $firstImport->assertOk();
-        $firstImport->assertJsonPath('summary.imported_rules', 24);
+        $firstImport->assertJsonPath('summary.imported_rules', 26);
         $firstImport->assertJsonPath('summary.updated_rules', 0);
 
         $secondImport->assertOk();
         $secondImport->assertJsonPath('summary.imported_rules', 0);
-        $secondImport->assertJsonPath('summary.updated_rules', 24);
+        $secondImport->assertJsonPath('summary.updated_rules', 26);
 
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
@@ -225,6 +225,14 @@ class CategoryRuleApiTest extends TestCase
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
             'pattern' => 'netflix',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'bargeldabhebung',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'geldautomat',
         ]);
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
@@ -528,6 +536,43 @@ class CategoryRuleApiTest extends TestCase
         $this->assertNotNull($link);
         $this->assertContains($settlementTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
         $this->assertContains($settlementCounterTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
+    }
+
+    public function test_default_rules_mark_cash_withdrawals_as_transfers(): void
+    {
+        $user = User::factory()->create();
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $cashWithdrawal = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-12',
+            'value_date' => '2026-04-12',
+            'amount' => '-200.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'INGDIBA ATM',
+            'description' => 'INGDIBA ATM • Bargeldabhebung',
+            'transaction_hash' => hash('sha256', 'cash-withdrawal-default-rule'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/category-rules/import-defaults')->assertOk();
+        $this->postJson('/api/category-rules/apply')->assertOk();
+
+        $cashWithdrawal->refresh();
+
+        $this->assertTrue($cashWithdrawal->is_transfer);
+        $this->assertTrue($cashWithdrawal->is_hidden_from_cashflow);
+        $this->assertSame('cash_withdrawal', data_get($cashWithdrawal->metadata, 'transfer_kind'));
     }
 
     public function test_default_rules_link_paypal_settlement_transfers_without_hiding_real_payments(): void

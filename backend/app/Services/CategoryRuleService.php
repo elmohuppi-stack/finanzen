@@ -133,6 +133,8 @@ class CategoryRuleService
             ['category_name' => 'Onlinekauf', 'pattern' => 'amazon', 'match_field' => 'counterparty', 'priority' => '130', 'is_active' => '1', 'name' => 'Versandhandel'],
             ['category_name' => 'Abos', 'pattern' => 'amazon prime', 'match_field' => 'both', 'priority' => '230', 'is_active' => '1', 'name' => 'Prime-Abo'],
             ['category_name' => 'Abos', 'pattern' => 'netflix', 'match_field' => 'both', 'priority' => '230', 'is_active' => '1', 'name' => 'Streaming-Abo'],
+            ['category_name' => 'Transfer', 'pattern' => 'bargeldabhebung', 'match_field' => 'both', 'priority' => '310', 'is_active' => '1', 'name' => 'Bargeldabhebung'],
+            ['category_name' => 'Transfer', 'pattern' => 'geldautomat', 'match_field' => 'both', 'priority' => '300', 'is_active' => '1', 'name' => 'Bargeldabhebung'],
             ['category_name' => 'Transfer', 'pattern' => 'umbuchung', 'match_field' => 'both', 'priority' => '260', 'is_active' => '1', 'name' => 'Interner Transfer'],
             ['category_name' => 'Transfer', 'pattern' => 'kreditkartenabrechnung', 'match_field' => 'description', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
             ['category_name' => 'Transfer', 'pattern' => 'ausgleich kreditkarte', 'match_field' => 'both', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],

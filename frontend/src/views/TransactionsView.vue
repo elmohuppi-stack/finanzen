@@ -45,6 +45,8 @@ interface DashboardResponse {
     counterparty_name: string | null
     description: string | null
     amount: string
+    cashflow_amount: string
+    cash_withdrawal_amount: string | null
     currency: string
     direction: string
     source_system: string
@@ -310,6 +312,21 @@ function formatTransferState(transaction: TransactionItem) {
   }
 
   return transaction.transfer_group_id ? 'Verknüpft' : 'Noch ohne Gegenbuchung'
+}
+
+function hasCashWithdrawalComponent(transaction: TransactionItem | null) {
+  return Number(transaction?.cash_withdrawal_amount ?? 0) > 0
+}
+
+function formatCashWithdrawalHint(transaction: TransactionItem) {
+  const cashWithdrawalAmount = Number(transaction.cash_withdrawal_amount ?? 0)
+  const purchaseAmount = Math.abs(Number(transaction.cashflow_amount ?? transaction.amount))
+
+  if (!(cashWithdrawalAmount > 0)) {
+    return ''
+  }
+
+  return `Enthält Bargeldauszahlung ${formatMoney(cashWithdrawalAmount, transaction.currency)} · Einkaufsanteil ca. ${formatMoney(purchaseAmount, transaction.currency)}`
 }
 
 function getAccountPriority(accountType: string) {
@@ -823,6 +840,9 @@ watch(
                   {{ formatTransferKind(transaction.transfer_kind) }} ·
                   {{ formatTransferState(transaction) }}
                 </p>
+                <p v-else-if="hasCashWithdrawalComponent(transaction)" class="transaction-note">
+                  {{ formatCashWithdrawalHint(transaction) }}
+                </p>
               </div>
               <div class="transaction-meta">
                 <div class="transaction-tags">
@@ -885,6 +905,22 @@ watch(
           <h3>Beschreibung</h3>
           <p>
             {{ selectedTransaction.description || 'Keine zusätzliche Beschreibung vorhanden.' }}
+          </p>
+          <p v-if="hasCashWithdrawalComponent(selectedTransaction)" class="detail-copy">
+            Diese Kartenzahlung enthält zusätzlich eine Bargeldauszahlung von
+            {{
+              formatMoney(
+                Number(selectedTransaction.cash_withdrawal_amount ?? 0),
+                selectedTransaction.currency,
+              )
+            }}. Für die Auswertungen wird nur der Einkaufsanteil von
+            {{
+              formatMoney(
+                Math.abs(Number(selectedTransaction.cashflow_amount)),
+                selectedTransaction.currency,
+              )
+            }}
+            als Ausgabe gezählt.
           </p>
         </section>
 
