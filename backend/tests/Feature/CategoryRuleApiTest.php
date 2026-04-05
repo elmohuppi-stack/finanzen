@@ -179,12 +179,12 @@ class CategoryRuleApiTest extends TestCase
         $secondImport = $this->postJson('/api/category-rules/import-defaults');
 
         $firstImport->assertOk();
-        $firstImport->assertJsonPath('summary.imported_rules', 21);
+        $firstImport->assertJsonPath('summary.imported_rules', 24);
         $firstImport->assertJsonPath('summary.updated_rules', 0);
 
         $secondImport->assertOk();
         $secondImport->assertJsonPath('summary.imported_rules', 0);
-        $secondImport->assertJsonPath('summary.updated_rules', 21);
+        $secondImport->assertJsonPath('summary.updated_rules', 24);
 
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
@@ -213,6 +213,18 @@ class CategoryRuleApiTest extends TestCase
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
             'pattern' => 'aral',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'amazon',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'amazon prime',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'netflix',
         ]);
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,

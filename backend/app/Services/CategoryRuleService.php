@@ -130,6 +130,9 @@ class CategoryRuleService
             ['category_name' => 'Mobilität', 'pattern' => 'jet', 'match_field' => 'counterparty', 'priority' => '140', 'is_active' => '1', 'name' => 'Tanken'],
             ['category_name' => 'Mobilität', 'pattern' => 'total', 'match_field' => 'counterparty', 'priority' => '140', 'is_active' => '1', 'name' => 'Tanken'],
             ['category_name' => 'Wohnen', 'pattern' => 'enstroga', 'match_field' => 'both', 'priority' => '180', 'is_active' => '1', 'name' => 'Strom'],
+            ['category_name' => 'Onlinekauf', 'pattern' => 'amazon', 'match_field' => 'counterparty', 'priority' => '130', 'is_active' => '1', 'name' => 'Versandhandel'],
+            ['category_name' => 'Abos', 'pattern' => 'amazon prime', 'match_field' => 'both', 'priority' => '230', 'is_active' => '1', 'name' => 'Prime-Abo'],
+            ['category_name' => 'Abos', 'pattern' => 'netflix', 'match_field' => 'both', 'priority' => '230', 'is_active' => '1', 'name' => 'Streaming-Abo'],
             ['category_name' => 'Transfer', 'pattern' => 'umbuchung', 'match_field' => 'both', 'priority' => '260', 'is_active' => '1', 'name' => 'Interner Transfer'],
             ['category_name' => 'Transfer', 'pattern' => 'kreditkartenabrechnung', 'match_field' => 'description', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
             ['category_name' => 'Transfer', 'pattern' => 'ausgleich kreditkarte', 'match_field' => 'both', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
@@ -479,6 +482,8 @@ class CategoryRuleService
             ['name' => 'Drogerie', 'category_type' => 'expense', 'color' => '#ec4899', 'sort_order' => 5],
             ['name' => 'Mobilität', 'category_type' => 'expense', 'color' => '#0ea5e9', 'sort_order' => 6],
             ['name' => 'Wohnen', 'category_type' => 'expense', 'color' => '#f59e0b', 'sort_order' => 7],
+            ['name' => 'Onlinekauf', 'category_type' => 'expense', 'color' => '#6366f1', 'sort_order' => 8],
+            ['name' => 'Abos', 'category_type' => 'expense', 'color' => '#7c3aed', 'sort_order' => 9],
             ['name' => 'Transfer', 'category_type' => 'transfer', 'color' => '#64748b', 'sort_order' => 20],
         ];
 

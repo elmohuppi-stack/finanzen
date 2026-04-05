@@ -79,6 +79,31 @@ CSV;
         ]);
     }
 
+    public function test_import_uses_the_sender_for_incoming_giro_payments(): void
+    {
+        Sanctum::actingAs(User::factory()->create());
+
+        $content = <<<'CSV'
+"Girokonto";"DE86120300000016478885"
+""
+"Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
+"11.03.26";"11.03.26";"Gebucht";"Bundesagentur für Arbeit - Familienkasse";"Hepp, Bettina                                                         Richard-Wagner-Str. 25";"KG527002FK073735 0326 056062472428/3000124461083";"Eingang";"DE07760000000076001615";"777";"";"";"056062472428"
+CSV;
+
+        $file = UploadedFile::fake()->createWithContent('giro-income.csv', $content);
+
+        $this->postJson('/api/imports', [
+            'file' => $file,
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('transactions', [
+            'source_system' => 'dkb_giro',
+            'amount' => '777.00',
+            'direction' => 'credit',
+            'counterparty_name' => 'Bundesagentur für Arbeit - Familienkasse',
+        ]);
+    }
+
     public function test_import_stores_account_balance_from_csv_header(): void
     {
         Sanctum::actingAs(User::factory()->create());

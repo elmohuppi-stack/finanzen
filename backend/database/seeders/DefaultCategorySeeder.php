@@ -23,6 +23,7 @@ class DefaultCategorySeeder extends Seeder
             ['name' => 'Mobilität', 'category_type' => 'expense', 'color' => '#f59e0b'],
             ['name' => 'Gesundheit', 'category_type' => 'expense', 'color' => '#ef4444'],
             ['name' => 'Freizeit', 'category_type' => 'expense', 'color' => '#8b5cf6'],
+            ['name' => 'Onlinekauf', 'category_type' => 'expense', 'color' => '#6366f1'],
             ['name' => 'Familie / Kinder', 'category_type' => 'expense', 'color' => '#ec4899'],
             ['name' => 'Versicherungen', 'category_type' => 'expense', 'color' => '#0f766e'],
             ['name' => 'Reisen', 'category_type' => 'expense', 'color' => '#0891b2'],

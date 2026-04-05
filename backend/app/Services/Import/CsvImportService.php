@@ -460,10 +460,15 @@ class CsvImportService
         }
 
         $valueDate = $this->parseGermanDate($row['Wertstellung'] ?? null);
-        $counterparty = $this->firstFilled(
-            $row['Zahlungsempfänger*in'] ?? null,
-            $row['Zahlungspflichtige*r'] ?? null,
-        );
+        $counterparty = (float) $amount >= 0
+            ? $this->firstFilled(
+                $row['Zahlungspflichtige*r'] ?? null,
+                $row['Zahlungsempfänger*in'] ?? null,
+            )
+            : $this->firstFilled(
+                $row['Zahlungsempfänger*in'] ?? null,
+                $row['Zahlungspflichtige*r'] ?? null,
+            );
         $description = $this->joinTextParts([
             $row['Verwendungszweck'] ?? null,
             $row['Umsatztyp'] ?? null,

@@ -112,6 +112,7 @@ const activeTab = ref<WorkbenchTab>('categories')
 const categorySubTab = ref<CategorySubTab>('list')
 const previewMode = ref<PreviewMode>('matches')
 const selectedRuleCategoryId = ref('all')
+const ruleSearchQuery = ref('')
 const categorySort = ref<CategorySort>('rules')
 const hideEmptyCategories = ref(true)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -185,13 +186,29 @@ const sortedRules = computed(() => {
 })
 
 const filteredRules = computed(() => {
-  if (selectedRuleCategoryId.value === 'all') {
-    return sortedRules.value
+  const categoryFilteredRules =
+    selectedRuleCategoryId.value === 'all'
+      ? sortedRules.value
+      : sortedRules.value.filter(
+          (rule) => String(rule.category_id) === selectedRuleCategoryId.value,
+        )
+
+  const normalizedQuery = ruleSearchQuery.value.trim().toLocaleLowerCase('de')
+
+  if (!normalizedQuery) {
+    return categoryFilteredRules
   }
 
-  return sortedRules.value.filter(
-    (rule) => String(rule.category_id) === selectedRuleCategoryId.value,
-  )
+  return categoryFilteredRules.filter((rule) => {
+    const haystacks = [
+      rule.pattern,
+      rule.name ?? '',
+      rule.category_name ?? '',
+      formatMatchField(rule.match_field),
+    ]
+
+    return haystacks.some((value) => value.toLocaleLowerCase('de').includes(normalizedQuery))
+  })
 })
 
 const selectedRuleCategory = computed(
@@ -1298,24 +1315,23 @@ watch(
                     <span>{{ category.ruleCount }} Regeln</span>
                   </button>
 
-                  <div class="category-card__actions">
-                    <span v-if="category.is_system" class="status-pill">System</span>
-                    <template v-else>
-                      <button
-                        class="ghost-button small-button"
-                        type="button"
-                        @click="startEditCategory(category)"
-                      >
-                        Bearbeiten
-                      </button>
-                      <button
-                        class="danger-button small-button"
-                        type="button"
-                        @click="deleteCategory(category)"
-                      >
-                        Löschen
-                      </button>
-                    </template>
+                  <div v-if="!category.is_system" class="category-card__actions">
+                    <button
+                      class="ghost-button small-button"
+                      type="button"
+                      @click="startEditCategory(category)"
+                    >
+                      Bearbeiten
+                    </button>
+                    <button
+                      class="icon-button icon-button--danger"
+                      type="button"
+                      :aria-label="`Kategorie ${category.name} löschen`"
+                      :title="`Kategorie ${category.name} löschen`"
+                      @click="deleteCategory(category)"
+                    >
+                      <span aria-hidden="true">🗑</span>
+                    </button>
                   </div>
                 </article>
               </div>
@@ -1340,7 +1356,7 @@ watch(
               </div>
             </div>
 
-            <div class="dataset-toolbar">
+            <div class="dataset-toolbar rule-filter-toolbar">
               <label class="inline-field">
                 <span>Kategorie filtern</span>
                 <select v-model="selectedRuleCategoryId">
@@ -1353,6 +1369,15 @@ watch(
                     {{ category.name }}
                   </option>
                 </select>
+              </label>
+
+              <label class="inline-field">
+                <span>Regeln suchen</span>
+                <input
+                  v-model="ruleSearchQuery"
+                  type="search"
+                  placeholder="z. B. paypal, lidl, tanken"
+                />
               </label>
             </div>
 
@@ -1404,7 +1429,11 @@ watch(
               </article>
             </div>
             <p v-else>
-              Für {{ selectedRuleCategory?.name || 'diese Kategorie' }} gibt es noch keine Regeln.
+              {{
+                ruleSearchQuery.trim()
+                  ? `Für ${selectedRuleCategory?.name || 'diese Auswahl'} und „${ruleSearchQuery.trim()}“ wurden keine Regeln gefunden.`
+                  : `Für ${selectedRuleCategory?.name || 'diese Kategorie'} gibt es noch keine Regeln.`
+              }}
             </p>
           </template>
 
@@ -1946,6 +1975,11 @@ watch(
   flex-wrap: wrap;
 }
 
+.rule-filter-toolbar {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  align-items: end;
+}
+
 .inline-field--compact {
   min-width: 12rem;
 }
@@ -1988,6 +2022,7 @@ watch(
   font-weight: 800;
 }
 
+.inline-field input,
 .inline-field select,
 .rule-form input,
 .rule-form select {
@@ -2053,6 +2088,27 @@ watch(
   font-size: 0.85rem;
 }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.icon-button span {
+  line-height: 1;
+  font-size: 0.95rem;
+}
+
+.icon-button--danger {
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  color: var(--color-danger);
+}
+
 .apply-button {
   margin-top: 0.15rem;
 }
@@ -2113,8 +2169,8 @@ watch(
 
 .category-card {
   display: grid;
-  gap: 0.7rem;
-  min-height: 82px;
+  gap: 0.45rem;
+  min-height: 0;
 }
 
 .category-card__main {
@@ -2132,7 +2188,7 @@ watch(
 .category-card__actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.45rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
 
@@ -2157,6 +2213,15 @@ watch(
 .day-header,
 .preview-empty {
   margin: 0;
+}
+
+.category-card strong {
+  line-height: 1.2;
+}
+
+.category-card p {
+  font-size: 0.84rem;
+  line-height: 1.2;
 }
 
 .rule-card {
