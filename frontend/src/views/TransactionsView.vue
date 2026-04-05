@@ -463,6 +463,55 @@ function isRelatedTransfer(transaction: TransactionItem) {
   )
 }
 
+function getLinkedCounterpart(transaction: TransactionItem | null) {
+  if (!transaction?.transfer_group_id) {
+    return null
+  }
+
+  return (
+    transactions.value.find(
+      (candidate) =>
+        candidate.transfer_group_id === transaction.transfer_group_id &&
+        candidate.id !== transaction.id,
+    ) ?? null
+  )
+}
+
+async function jumpToLinkedTransaction(transaction: TransactionItem | null) {
+  if (!transaction?.transfer_group_id) {
+    return
+  }
+
+  error.value = ''
+
+  let counterpart: TransactionItem | null = getLinkedCounterpart(transaction)
+
+  if (!counterpart) {
+    selectedAccountId.value = ''
+    searchQuery.value = ''
+    viewMode.value = 'all'
+    transferFilter.value = 'group'
+
+    await loadTransactions()
+
+    counterpart =
+      transactions.value.find(
+        (candidate) =>
+          candidate.transfer_group_id === transaction.transfer_group_id &&
+          candidate.id !== transaction.id,
+      ) ?? null
+  }
+
+  if (!counterpart) {
+    error.value =
+      'Die verknüpfte Gegenbuchung konnte in den geladenen Buchungen nicht gefunden werden.'
+    return
+  }
+
+  transferFilter.value = 'group'
+  selectedTransactionId.value = counterpart.id
+}
+
 function showSelectedTransferGroup() {
   if (!selectedTransaction.value?.transfer_group_id) {
     return
@@ -716,9 +765,18 @@ watch(
             <div class="transaction-meta">
               <div class="transaction-tags">
                 <span class="chip">{{ transaction.category_name || 'Unkategorisiert' }}</span>
-                <span v-if="transaction.is_transfer" class="chip chip-muted">
-                  {{ transaction.transfer_group_id ? 'verknüpft' : 'Transfer' }}
+                <span
+                  v-if="transaction.is_transfer && transaction.transfer_group_id"
+                  class="chip chip-muted chip-button"
+                  role="button"
+                  tabindex="0"
+                  @click.stop="jumpToLinkedTransaction(transaction)"
+                  @keydown.enter.stop.prevent="jumpToLinkedTransaction(transaction)"
+                  @keydown.space.stop.prevent="jumpToLinkedTransaction(transaction)"
+                >
+                  verknüpft ↗
                 </span>
+                <span v-else-if="transaction.is_transfer" class="chip chip-muted">Transfer</span>
               </div>
               <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
                 {{ formatMoney(transaction.amount, transaction.currency) }}
@@ -785,6 +843,14 @@ watch(
               @click="showSelectedTransferGroup"
             >
               Nur diese Gruppe zeigen
+            </button>
+            <button
+              v-if="getLinkedCounterpart(selectedTransaction)"
+              type="button"
+              class="ghost-button"
+              @click="jumpToLinkedTransaction(selectedTransaction)"
+            >
+              Zur Gegenbuchung
             </button>
             <button
               v-if="transferFilter !== 'all'"
@@ -1088,6 +1154,12 @@ p {
   background: var(--color-surface);
   color: var(--color-text-muted);
   border: 1px solid var(--color-border);
+}
+
+.chip-button {
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
 }
 
 .amount {
