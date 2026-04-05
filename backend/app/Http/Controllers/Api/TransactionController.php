@@ -6,14 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\TransactionSplit;
+use App\Services\TransactionTransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class TransactionController extends Controller
 {
-    public function updateCategory(Request $request, int $transactionId): JsonResponse
-    {
+    public function updateCategory(
+        Request $request,
+        int $transactionId,
+        TransactionTransferService $transactionTransferService,
+    ): JsonResponse {
         $user = $request->user();
 
         $validated = $request->validate([
@@ -31,6 +35,7 @@ class TransactionController extends Controller
             ->firstOrFail();
 
         $categoryId = $validated['category_id'] ?? null;
+        $category = null;
 
         if ($categoryId === null) {
             $transaction->splits()
@@ -58,6 +63,8 @@ class TransactionController extends Controller
             );
         }
 
+        $transactionTransferService->syncTransferState($transaction, $category?->category_type);
+
         $transaction->load(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name']);
 
         $primarySplit = $transaction->splits
@@ -74,6 +81,10 @@ class TransactionController extends Controller
                 'category_rule_id' => $primarySplit?->category_rule_id,
                 'category_rule_name' => $primarySplit?->categoryRule?->name,
                 'account_name' => $transaction->account?->name,
+                'is_transfer' => $transaction->is_transfer,
+                'is_hidden_from_cashflow' => $transaction->is_hidden_from_cashflow,
+                'transfer_group_id' => $transaction->transfer_group_id,
+                'transfer_kind' => data_get($transaction->metadata, 'transfer_kind'),
             ],
         ]);
     }

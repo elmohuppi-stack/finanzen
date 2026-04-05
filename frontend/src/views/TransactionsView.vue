@@ -49,6 +49,10 @@ interface DashboardResponse {
     direction: string
     source_system: string
     account_name: string | null
+    is_transfer: boolean
+    is_hidden_from_cashflow: boolean
+    transfer_group_id: string | null
+    transfer_kind: string | null
     category_id: number | null
     category_name: string | null
     category_color: string | null
@@ -80,6 +84,7 @@ const selectedMonth = ref(new Date().toISOString().slice(0, 7))
 const searchQuery = ref('')
 const selectedAccountId = ref('')
 const selectedTransactionId = ref<number | null>(null)
+const transferFilter = ref<'all' | 'transfer' | 'linked' | 'group'>('all')
 const categoryDraft = ref('')
 const savingCategory = ref(false)
 const defaultAccountInitialized = ref(false)
@@ -124,6 +129,30 @@ const selectedTransaction = computed<TransactionItem | null>(() => {
   )
 })
 
+const filteredTransactions = computed(() => {
+  switch (transferFilter.value) {
+    case 'transfer':
+      return transactions.value.filter((transaction) => transaction.is_transfer)
+    case 'linked':
+      return transactions.value.filter(
+        (transaction) => transaction.is_transfer && Boolean(transaction.transfer_group_id),
+      )
+    case 'group': {
+      const selectedGroupId = selectedTransaction.value?.transfer_group_id
+
+      return selectedGroupId
+        ? transactions.value.filter(
+            (transaction) => transaction.transfer_group_id === selectedGroupId,
+          )
+        : transactions.value.filter(
+            (transaction) => transaction.is_transfer && Boolean(transaction.transfer_group_id),
+          )
+    }
+    default:
+      return transactions.value
+  }
+})
+
 const groupedTransactions = computed(() => {
   const groups = new Map<
     string,
@@ -135,7 +164,7 @@ const groupedTransactions = computed(() => {
       items: TransactionItem[]
     }
   >()
-  const sortedTransactions = [...transactions.value].sort((left, right) => {
+  const sortedTransactions = [...filteredTransactions.value].sort((left, right) => {
     const leftDate = left.booking_date ?? ''
     const rightDate = right.booking_date ?? ''
 
@@ -236,6 +265,29 @@ function formatSourceType(sourceType: string) {
     default:
       return sourceType
   }
+}
+
+function formatTransferKind(transferKind: string | null) {
+  switch (transferKind) {
+    case 'credit_card_settlement':
+      return 'Kreditkarten-Ausgleich'
+    case 'paypal_settlement':
+      return 'PayPal-Ausgleich'
+    case 'cash_withdrawal':
+      return 'Barabhebung'
+    case 'internal_transfer':
+      return 'Interner Transfer'
+    default:
+      return 'Technischer Transfer'
+  }
+}
+
+function formatTransferState(transaction: TransactionItem) {
+  if (!transaction.is_transfer) {
+    return ''
+  }
+
+  return transaction.transfer_group_id ? 'Verknüpft' : 'Noch ohne Gegenbuchung'
 }
 
 function getAccountPriority(accountType: string) {
@@ -348,6 +400,7 @@ async function applyFilters() {
 async function resetFilters() {
   searchQuery.value = ''
   selectedAccountId.value = ''
+  transferFilter.value = 'all'
   await loadTransactions()
 }
 
@@ -400,6 +453,24 @@ function selectTransaction(transactionId: number) {
   selectedTransactionId.value = transactionId
 }
 
+function isRelatedTransfer(transaction: TransactionItem) {
+  const selectedGroupId = selectedTransaction.value?.transfer_group_id
+
+  return Boolean(
+    selectedGroupId &&
+    transaction.transfer_group_id === selectedGroupId &&
+    transaction.id !== selectedTransaction.value?.id,
+  )
+}
+
+function showSelectedTransferGroup() {
+  if (!selectedTransaction.value?.transfer_group_id) {
+    return
+  }
+
+  transferFilter.value = 'group'
+}
+
 async function saveCategory() {
   if (!authStore.token || !selectedTransaction.value) {
     return
@@ -432,6 +503,27 @@ watch(
   selectedTransaction,
   (transaction) => {
     categoryDraft.value = transaction?.category_id ? String(transaction.category_id) : ''
+
+    if (transferFilter.value === 'group' && !transaction?.transfer_group_id) {
+      transferFilter.value = 'linked'
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  filteredTransactions,
+  (visibleTransactions) => {
+    if (visibleTransactions.length === 0) {
+      selectedTransactionId.value = null
+      return
+    }
+
+    const visibleIds = visibleTransactions.map((transaction) => transaction.id)
+
+    if (selectedTransactionId.value === null || !visibleIds.includes(selectedTransactionId.value)) {
+      selectedTransactionId.value = visibleTransactions[0]?.id ?? null
+    }
   },
   { immediate: true },
 )
@@ -527,6 +619,48 @@ watch(
         </div>
       </form>
 
+      <div class="transfer-toolbar">
+        <span class="toolbar-caption">Transfer-Filter</span>
+        <div class="toolbar">
+          <button
+            type="button"
+            class="filter-toggle"
+            :class="{ active: transferFilter === 'all' }"
+            @click="transferFilter = 'all'"
+          >
+            Alle
+          </button>
+          <button
+            type="button"
+            class="filter-toggle"
+            :class="{ active: transferFilter === 'transfer' }"
+            @click="transferFilter = 'transfer'"
+          >
+            Transfers
+          </button>
+          <button
+            type="button"
+            class="filter-toggle"
+            :class="{ active: transferFilter === 'linked' }"
+            @click="transferFilter = 'linked'"
+          >
+            Verknüpft
+          </button>
+          <button
+            v-if="selectedTransaction?.transfer_group_id"
+            type="button"
+            class="filter-toggle"
+            :class="{ active: transferFilter === 'group' }"
+            @click="showSelectedTransferGroup"
+          >
+            Diese Gruppe
+          </button>
+        </div>
+        <p class="compact-note">
+          {{ filteredTransactions.length }} von {{ transactions.length }} Buchungen sichtbar
+        </p>
+      </div>
+
       <div v-if="viewMode === 'month' && availableMonths.length" class="month-nav">
         <button
           type="button"
@@ -564,16 +698,28 @@ watch(
             v-for="transaction in group.items"
             :key="transaction.id"
             class="transaction-row"
-            :class="{ active: selectedTransaction?.id === transaction.id }"
+            :class="{
+              active: selectedTransaction?.id === transaction.id,
+              related: isRelatedTransfer(transaction),
+            }"
             type="button"
             @click="selectTransaction(transaction.id)"
           >
             <div class="transaction-main">
               <strong>{{ transaction.counterparty_name || 'Ohne Gegenstelle' }}</strong>
               <p>{{ transaction.description || formatSourceType(transaction.source_system) }}</p>
+              <p v-if="transaction.is_transfer" class="transaction-note">
+                {{ formatTransferKind(transaction.transfer_kind) }} ·
+                {{ formatTransferState(transaction) }}
+              </p>
             </div>
             <div class="transaction-meta">
-              <span class="chip">{{ transaction.category_name || 'Unkategorisiert' }}</span>
+              <div class="transaction-tags">
+                <span class="chip">{{ transaction.category_name || 'Unkategorisiert' }}</span>
+                <span v-if="transaction.is_transfer" class="chip chip-muted">
+                  {{ transaction.transfer_group_id ? 'verknüpft' : 'Transfer' }}
+                </span>
+              </div>
               <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
                 {{ formatMoney(transaction.amount, transaction.currency) }}
               </strong>
@@ -619,6 +765,36 @@ watch(
           <p>
             {{ selectedTransaction.description || 'Keine zusätzliche Beschreibung vorhanden.' }}
           </p>
+        </section>
+
+        <section v-if="selectedTransaction.is_transfer" class="detail-box">
+          <h3>Technische Buchung</h3>
+          <div class="transfer-status-row">
+            <span class="chip">{{ formatTransferKind(selectedTransaction.transfer_kind) }}</span>
+            <span class="chip chip-muted">{{ formatTransferState(selectedTransaction) }}</span>
+          </div>
+          <p class="detail-copy">
+            Diese Buchung ist als Transfer zwischen Zahlungsquellen markiert und wird deshalb in
+            Einnahmen und Ausgaben nicht mitgerechnet.
+          </p>
+          <div class="transfer-actions">
+            <button
+              v-if="selectedTransaction.transfer_group_id"
+              type="button"
+              class="ghost-button"
+              @click="showSelectedTransferGroup"
+            >
+              Nur diese Gruppe zeigen
+            </button>
+            <button
+              v-if="transferFilter !== 'all'"
+              type="button"
+              class="ghost-button"
+              @click="transferFilter = 'all'"
+            >
+              Alle Buchungen anzeigen
+            </button>
+          </div>
         </section>
 
         <section class="detail-box">
@@ -708,7 +884,8 @@ p {
 
 .toolbar,
 .filter-actions,
-.category-editor {
+.category-editor,
+.transfer-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
@@ -759,6 +936,26 @@ p {
   border-color: transparent;
 }
 
+.transfer-toolbar {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.toolbar-caption {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.compact-note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
 .month-nav {
   display: flex;
   justify-content: space-between;
@@ -792,6 +989,11 @@ p {
 .transaction-row.active {
   border-color: var(--color-accent-strong);
   box-shadow: 0 8px 24px rgba(79, 70, 229, 0.12);
+}
+
+.transaction-row.related {
+  border-color: rgba(79, 70, 229, 0.38);
+  background: color-mix(in srgb, var(--color-accent-soft) 45%, var(--color-surface-strong));
 }
 
 .account-card p,
@@ -852,6 +1054,27 @@ p {
   gap: 0.35rem;
 }
 
+.transaction-tags,
+.transfer-status-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.transaction-tags {
+  justify-content: flex-end;
+}
+
+.transfer-status-row {
+  justify-content: flex-start;
+  margin-top: 0.25rem;
+}
+
+.transaction-note {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
 .chip {
   display: inline-flex;
   padding: 0.25rem 0.55rem;
@@ -859,6 +1082,12 @@ p {
   background: var(--color-accent-soft);
   color: var(--color-accent-strong);
   font-size: 0.8rem;
+}
+
+.chip-muted {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
 }
 
 .amount {
@@ -887,6 +1116,15 @@ dd {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
+}
+
+.detail-copy {
+  margin-top: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.transfer-actions {
+  margin-top: 0.85rem;
 }
 
 .text-link {

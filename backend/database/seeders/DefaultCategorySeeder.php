@@ -16,6 +16,7 @@ class DefaultCategorySeeder extends Seeder
         $categories = [
             ['name' => 'Gehalt', 'category_type' => 'income', 'color' => '#16a34a'],
             ['name' => 'Nebeneinkünfte', 'category_type' => 'income', 'color' => '#22c55e'],
+            ['name' => 'Transfer', 'category_type' => 'transfer', 'color' => '#64748b'],
             ['name' => 'Wohnen', 'category_type' => 'expense', 'color' => '#2563eb'],
             ['name' => 'Lebensmittel', 'category_type' => 'expense', 'color' => '#059669'],
             ['name' => 'Drogerie', 'category_type' => 'expense', 'color' => '#10b981'],

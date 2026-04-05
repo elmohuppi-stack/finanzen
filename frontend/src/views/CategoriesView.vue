@@ -1377,7 +1377,7 @@ watch(
               </label>
 
               <label>
-                <span>Suchstring</span>
+                <strong class="field-label-primary">Suchstring</strong>
                 <input v-model="form.pattern" type="text" placeholder="z. B. lohn" required />
               </label>
 
@@ -1774,6 +1774,11 @@ watch(
 .small-text,
 .muted {
   color: var(--color-text-muted);
+}
+
+.field-label-primary {
+  color: var(--color-text);
+  font-weight: 800;
 }
 
 .inline-field select,

@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Models\Category;
 use App\Models\CategoryRule;
 use App\Models\Transaction;
+use App\Models\TransactionLink;
 use App\Models\TransactionSplit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -178,12 +179,12 @@ class CategoryRuleApiTest extends TestCase
         $secondImport = $this->postJson('/api/category-rules/import-defaults');
 
         $firstImport->assertOk();
-        $firstImport->assertJsonPath('summary.imported_rules', 7);
+        $firstImport->assertJsonPath('summary.imported_rules', 9);
         $firstImport->assertJsonPath('summary.updated_rules', 0);
 
         $secondImport->assertOk();
         $secondImport->assertJsonPath('summary.imported_rules', 0);
-        $secondImport->assertJsonPath('summary.updated_rules', 7);
+        $secondImport->assertJsonPath('summary.updated_rules', 9);
 
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
@@ -191,11 +192,23 @@ class CategoryRuleApiTest extends TestCase
         ]);
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
+            'pattern' => 'gehaltsabrechnung',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
             'pattern' => 'rewe',
         ]);
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
-            'pattern' => 'visa abrechnung',
+            'pattern' => 'kreditkartenabrechnung',
+        ]);
+        $this->assertDatabaseHas('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'ausgleich kreditkarte',
+        ]);
+        $this->assertDatabaseMissing('category_rules', [
+            'user_id' => $user->id,
+            'pattern' => 'abrechnung',
         ]);
     }
 
@@ -296,6 +309,16 @@ class CategoryRuleApiTest extends TestCase
             'sort_order' => 20,
         ]);
 
+        $transferCategory = Category::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Transfer',
+            'slug' => 'transfer',
+            'category_type' => 'transfer',
+            'color' => '#6b7280',
+            'is_system' => false,
+            'sort_order' => 30,
+        ]);
+
         $marchSalary = Transaction::query()->create([
             'account_id' => $account->id,
             'booking_date' => '2026-03-28',
@@ -335,6 +358,40 @@ class CategoryRuleApiTest extends TestCase
             'source_system' => 'dkb_giro',
         ]);
 
+        $settlementTransaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-27',
+            'value_date' => '2026-04-27',
+            'amount' => '-890.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'DKB',
+            'description' => 'KREDITKARTENABRECHNUNG',
+            'transaction_hash' => hash('sha256', 'card-settlement-april'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        $visaAccount = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Visa',
+            'account_type' => 'credit_card',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $settlementCounterTransaction = Transaction::query()->create([
+            'account_id' => $visaAccount->id,
+            'booking_date' => '2026-04-28',
+            'value_date' => '2026-04-28',
+            'amount' => '890.00',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'DKB Visa',
+            'description' => 'Ausgleich Kreditkarte gem. Lastschrift',
+            'transaction_hash' => hash('sha256', 'card-settlement-counter-april'),
+            'source_system' => 'dkb_visa',
+        ]);
+
         $rule = CategoryRule::query()->create([
             'user_id' => $user->id,
             'category_id' => $salaryCategory->id,
@@ -357,13 +414,33 @@ class CategoryRuleApiTest extends TestCase
             'metadata' => ['source' => 'manual'],
         ]);
 
+        CategoryRule::query()->create([
+            'user_id' => $user->id,
+            'category_id' => $transferCategory->id,
+            'pattern' => 'kreditkartenabrechnung',
+            'match_field' => 'description',
+            'match_type' => 'contains',
+            'priority' => 200,
+            'is_active' => true,
+        ]);
+
+        CategoryRule::query()->create([
+            'user_id' => $user->id,
+            'category_id' => $transferCategory->id,
+            'pattern' => 'ausgleich kreditkarte',
+            'match_field' => 'both',
+            'match_type' => 'contains',
+            'priority' => 200,
+            'is_active' => true,
+        ]);
+
         Sanctum::actingAs($user);
 
         $response = $this->postJson('/api/category-rules/apply');
 
         $response->assertOk();
-        $response->assertJsonPath('summary.matched_transactions', 2);
-        $response->assertJsonPath('summary.updated_transactions', 2);
+        $response->assertJsonPath('summary.matched_transactions', 4);
+        $response->assertJsonPath('summary.updated_transactions', 4);
         $response->assertJsonPath('summary.skipped_manual_transactions', 1);
 
         $marchSplit = TransactionSplit::query()
@@ -378,6 +455,10 @@ class CategoryRuleApiTest extends TestCase
             ->where('transaction_id', $manualTransaction->id)
             ->where('split_type', 'category_assignment')
             ->firstOrFail();
+        $settlementSplit = TransactionSplit::query()
+            ->where('transaction_id', $settlementTransaction->id)
+            ->where('split_type', 'category_assignment')
+            ->firstOrFail();
 
         $this->assertSame($salaryCategory->id, $marchSplit->category_id);
         $this->assertSame($salaryCategory->id, $aprilSplit->category_id);
@@ -389,5 +470,23 @@ class CategoryRuleApiTest extends TestCase
         $this->assertSame($bonusCategory->id, $manualSplit->category_id);
         $this->assertNull($manualSplit->category_rule_id);
         $this->assertSame('manual', data_get($manualSplit->metadata, 'source'));
+
+        $settlementTransaction->refresh();
+        $settlementCounterTransaction->refresh();
+
+        $this->assertSame($transferCategory->id, $settlementSplit->category_id);
+        $this->assertTrue($settlementTransaction->is_transfer);
+        $this->assertTrue($settlementTransaction->is_hidden_from_cashflow);
+        $this->assertSame('credit_card_settlement', data_get($settlementTransaction->metadata, 'transfer_kind'));
+        $this->assertNotNull($settlementTransaction->transfer_group_id);
+        $this->assertSame($settlementTransaction->transfer_group_id, $settlementCounterTransaction->transfer_group_id);
+
+        $link = TransactionLink::query()
+            ->where('link_type', 'credit_card_settlement')
+            ->first();
+
+        $this->assertNotNull($link);
+        $this->assertContains($settlementTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
+        $this->assertContains($settlementCounterTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
     }
 }

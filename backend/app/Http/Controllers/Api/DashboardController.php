@@ -30,25 +30,35 @@ class DashboardController extends Controller
         $searchQuery = trim((string) ($validated['query'] ?? ''));
 
         $accountScopedTransactionQuery = Transaction::query()
+            ->whereHas('account', fn($query) => $query->where('user_id', $user->id));
+
+        $cashflowTransactionQuery = Transaction::query()
             ->visibleInCashflow()
             ->whereHas('account', fn($query) => $query->where('user_id', $user->id));
 
         if ($selectedAccountId !== null) {
             $accountScopedTransactionQuery->where('account_id', $selectedAccountId);
+            $cashflowTransactionQuery->where('account_id', $selectedAccountId);
         }
 
         $baseTransactionQuery = clone $accountScopedTransactionQuery;
+        $cashflowBaseTransactionQuery = clone $cashflowTransactionQuery;
 
         if ($searchQuery !== '') {
             $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $searchQuery) . '%';
 
-            $baseTransactionQuery->where(function ($query) use ($like): void {
-                $query
-                    ->where('counterparty_name', 'like', $like)
-                    ->orWhere('description', 'like', $like)
-                    ->orWhere('source_system', 'like', $like)
-                    ->orWhereHas('account', fn($accountQuery) => $accountQuery->where('name', 'like', $like));
-            });
+            $applySearch = function ($query) use ($like): void {
+                $query->where(function ($nestedQuery) use ($like): void {
+                    $nestedQuery
+                        ->where('counterparty_name', 'like', $like)
+                        ->orWhere('description', 'like', $like)
+                        ->orWhere('source_system', 'like', $like)
+                        ->orWhereHas('account', fn($accountQuery) => $accountQuery->where('name', 'like', $like));
+                });
+            };
+
+            $applySearch($baseTransactionQuery);
+            $applySearch($cashflowBaseTransactionQuery);
         }
 
         $balanceTransactions = (clone $accountScopedTransactionQuery)
@@ -65,14 +75,18 @@ class DashboardController extends Controller
             ->values();
 
         $selectedMonth = $validated['month'] ?? ($availableMonths->first() ?: now()->format('Y-m'));
-        $filteredTransactionQuery = clone $baseTransactionQuery;
+        $listTransactionQuery = clone $baseTransactionQuery;
+        $filteredTransactionQuery = clone $cashflowBaseTransactionQuery;
 
         if ($selectedView === 'month') {
             $month = CarbonImmutable::createFromFormat('Y-m', $selectedMonth);
-            $filteredTransactionQuery->whereBetween('booking_date', [
+            $range = [
                 $month->startOfMonth()->toDateString(),
                 $month->endOfMonth()->toDateString(),
-            ]);
+            ];
+
+            $listTransactionQuery->whereBetween('booking_date', $range);
+            $filteredTransactionQuery->whereBetween('booking_date', $range);
         }
 
         $income = (float) (clone $filteredTransactionQuery)
@@ -136,7 +150,7 @@ class DashboardController extends Controller
             ])
             ->values();
 
-        $transactions = (clone $filteredTransactionQuery)
+        $transactions = (clone $listTransactionQuery)
             ->with(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name'])
             ->orderByDesc('booking_date')
             ->orderByDesc('id')
@@ -159,6 +173,10 @@ class DashboardController extends Controller
                     'direction' => $transaction->direction,
                     'source_system' => $transaction->source_system,
                     'account_name' => $transaction->account?->name,
+                    'is_transfer' => $transaction->is_transfer,
+                    'is_hidden_from_cashflow' => $transaction->is_hidden_from_cashflow,
+                    'transfer_group_id' => $transaction->transfer_group_id,
+                    'transfer_kind' => data_get($transaction->metadata, 'transfer_kind'),
                     'category_id' => $primarySplit?->category_id,
                     'category_name' => $primarySplit?->category?->name,
                     'category_color' => $primarySplit?->category?->color,

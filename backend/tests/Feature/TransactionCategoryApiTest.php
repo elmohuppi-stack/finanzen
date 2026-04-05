@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Account;
 use App\Models\Category;
 use App\Models\Transaction;
+use App\Models\TransactionLink;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -148,6 +149,97 @@ class TransactionCategoryApiTest extends TestCase
             'category_id' => $category->id,
             'split_type' => 'category_assignment',
         ]);
+    }
+
+    public function test_assigning_transfer_category_marks_transaction_as_hidden_from_cashflow(): void
+    {
+        $user = User::factory()->create();
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Visa',
+            'account_type' => 'credit_card',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $category = Category::query()->create([
+            'user_id' => null,
+            'name' => 'Transfer',
+            'slug' => 'transfer',
+            'category_type' => 'transfer',
+            'color' => '#6b7280',
+            'is_system' => true,
+            'sort_order' => 2,
+        ]);
+
+        $transaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-10',
+            'value_date' => '2026-04-10',
+            'amount' => '-42.50',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'DKB',
+            'description' => 'KREDITKARTENABRECHNUNG',
+            'transaction_hash' => hash('sha256', 'transfer-assignment'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        $visaAccount = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Visa',
+            'account_type' => 'credit_card',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $counterTransaction = Transaction::query()->create([
+            'account_id' => $visaAccount->id,
+            'booking_date' => '2026-04-11',
+            'value_date' => '2026-04-11',
+            'amount' => '42.50',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'DKB Visa',
+            'description' => 'Ausgleich Kreditkarte gem. Lastschrift',
+            'transaction_hash' => hash('sha256', 'transfer-counter-assignment'),
+            'source_system' => 'dkb_visa',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->patchJson('/api/transactions/' . $transaction->id . '/category', [
+            'category_id' => $category->id,
+        ]);
+
+        $this->patchJson('/api/transactions/' . $counterTransaction->id . '/category', [
+            'category_id' => $category->id,
+        ])->assertOk();
+
+        $response->assertOk();
+        $response->assertJsonPath('transaction.category_name', 'Transfer');
+
+        $transaction->refresh();
+        $counterTransaction->refresh();
+
+        $this->assertTrue($transaction->is_transfer);
+        $this->assertTrue($transaction->is_hidden_from_cashflow);
+        $this->assertSame('credit_card_settlement', data_get($transaction->metadata, 'transfer_kind'));
+        $this->assertNotNull($transaction->transfer_group_id);
+        $this->assertSame($transaction->transfer_group_id, $counterTransaction->transfer_group_id);
+
+        $this->assertDatabaseHas('transaction_links', [
+            'link_type' => 'credit_card_settlement',
+            'amount' => '42.50',
+        ]);
+
+        $link = TransactionLink::query()
+            ->where('link_type', 'credit_card_settlement')
+            ->first();
+
+        $this->assertNotNull($link);
+        $this->assertContains($transaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
+        $this->assertContains($counterTransaction->id, [$link->from_transaction_id, $link->to_transaction_id]);
     }
 
     public function test_user_cannot_assign_category_to_foreign_transaction(): void

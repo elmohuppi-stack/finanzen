@@ -9,9 +9,14 @@ use App\Models\TransactionSplit;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class CategoryRuleService
 {
+    public function __construct(
+        private readonly TransactionTransferService $transactionTransferService,
+    ) {}
+
     public function exportRulesForUser(User $user): string
     {
         $rules = CategoryRule::query()
@@ -108,13 +113,17 @@ class CategoryRuleService
      */
     public function importDefaultRules(User $user): array
     {
+        $this->ensureDefaultRuleCategoriesExist();
+
         return $this->syncRules($user, [
             ['category_name' => 'Gehalt', 'pattern' => 'lohn', 'match_field' => 'both', 'priority' => '280', 'is_active' => '1', 'name' => 'Gehaltseingang'],
             ['category_name' => 'Gehalt', 'pattern' => 'gehalt', 'match_field' => 'both', 'priority' => '280', 'is_active' => '1', 'name' => 'Gehaltseingang'],
-            ['category_name' => 'Gehalt', 'pattern' => 'abrechnung', 'match_field' => 'description', 'priority' => '240', 'is_active' => '1', 'name' => 'Gehaltsabrechnung'],
+            ['category_name' => 'Gehalt', 'pattern' => 'gehaltsabrechnung', 'match_field' => 'description', 'priority' => '240', 'is_active' => '1', 'name' => 'Gehaltsabrechnung'],
             ['category_name' => 'Lebensmittel', 'pattern' => 'rewe', 'match_field' => 'both', 'priority' => '150', 'is_active' => '1', 'name' => 'Supermarkt'],
             ['category_name' => 'Lebensmittel', 'pattern' => 'edeka', 'match_field' => 'both', 'priority' => '150', 'is_active' => '1', 'name' => 'Supermarkt'],
             ['category_name' => 'Transfer', 'pattern' => 'umbuchung', 'match_field' => 'both', 'priority' => '260', 'is_active' => '1', 'name' => 'Interner Transfer'],
+            ['category_name' => 'Transfer', 'pattern' => 'kreditkartenabrechnung', 'match_field' => 'description', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
+            ['category_name' => 'Transfer', 'pattern' => 'ausgleich kreditkarte', 'match_field' => 'both', 'priority' => '320', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
             ['category_name' => 'Transfer', 'pattern' => 'visa abrechnung', 'match_field' => 'both', 'priority' => '280', 'is_active' => '1', 'name' => 'Kartenabrechnung'],
         ]);
     }
@@ -183,7 +192,7 @@ class CategoryRuleService
         $rules = CategoryRule::query()
             ->where('user_id', $user->id)
             ->where('is_active', true)
-            ->with('category:id,name')
+            ->with('category:id,name,category_type')
             ->orderByDesc('priority')
             ->orderBy('id')
             ->get();
@@ -392,6 +401,10 @@ class CategoryRuleService
             'direction' => $transaction->direction,
             'source_system' => $transaction->source_system,
             'account_name' => $transaction->account?->name,
+            'is_transfer' => $transaction->is_transfer,
+            'is_hidden_from_cashflow' => $transaction->is_hidden_from_cashflow,
+            'transfer_group_id' => $transaction->transfer_group_id,
+            'transfer_kind' => data_get($transaction->metadata, 'transfer_kind'),
             'category_id' => $primarySplit?->category_id,
             'category_name' => $primarySplit?->category?->name,
             'category_color' => $primarySplit?->category?->color,
@@ -419,23 +432,55 @@ class CategoryRuleService
             ],
         ];
 
+        $splitChanged = false;
+
         if ($existingSplit === null) {
             $transaction->splits()->create(array_merge($payload, [
                 'split_type' => 'category_assignment',
                 'sort_order' => 0,
             ]));
 
-            return true;
+            $splitChanged = true;
+        } else {
+            $existingSplit->fill($payload);
+
+            if ($existingSplit->isDirty()) {
+                $existingSplit->save();
+                $splitChanged = true;
+            }
         }
 
-        $existingSplit->fill($payload);
+        $transferChanged = $this->transactionTransferService->syncTransferState(
+            $transaction,
+            $rule->category?->category_type,
+            $rule->pattern,
+        );
 
-        if (! $existingSplit->isDirty()) {
-            return false;
+        return $splitChanged || $transferChanged;
+    }
+
+    private function ensureDefaultRuleCategoriesExist(): void
+    {
+        $defaults = [
+            ['name' => 'Gehalt', 'category_type' => 'income', 'color' => '#16a34a', 'sort_order' => 1],
+            ['name' => 'Lebensmittel', 'category_type' => 'expense', 'color' => '#059669', 'sort_order' => 4],
+            ['name' => 'Transfer', 'category_type' => 'transfer', 'color' => '#64748b', 'sort_order' => 20],
+        ];
+
+        foreach ($defaults as $default) {
+            Category::query()->updateOrCreate(
+                [
+                    'user_id' => null,
+                    'slug' => Str::slug($default['name']),
+                ],
+                [
+                    'name' => $default['name'],
+                    'category_type' => $default['category_type'],
+                    'color' => $default['color'],
+                    'is_system' => true,
+                    'sort_order' => $default['sort_order'],
+                ],
+            );
         }
-
-        $existingSplit->save();
-
-        return true;
     }
 }
