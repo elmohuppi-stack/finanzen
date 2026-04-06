@@ -58,7 +58,7 @@ watch(theme, (value) => {
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h1>Finanzcockpit</h1>
+        <h1>Finanz<br>Cockpit</h1>
       </div>
 
       <nav class="sidebar-nav">
@@ -69,6 +69,21 @@ watch(theme, (value) => {
         <RouterLink to="/imports">Import</RouterLink>
         <RouterLink to="/help">Hilfe</RouterLink>
       </nav>
+
+      <div class="theme-section">
+        <button
+          class="theme-toggle"
+          :class="{ 'is-dark': isDark }"
+          type="button"
+          aria-label="Farbschema wechseln"
+          @click="toggleTheme"
+        >
+          <span class="theme-toggle__track">
+            <span class="theme-toggle__thumb" />
+          </span>
+          <span class="theme-toggle__label">{{ isDark ? 'Dunkel' : 'Hell' }}</span>
+        </button>
+      </div>
 
       <div class="sidebar-footer">
         <div v-if="!authStore.isAuthenticated" class="sidebar-auth">
@@ -134,7 +149,7 @@ watch(theme, (value) => {
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 240px;
+  width: 180px;
   min-height: 100vh;
   padding: 1.5rem 1rem;
   border-right: 1px solid var(--color-border);
@@ -147,27 +162,30 @@ watch(theme, (value) => {
 
 .sidebar-header h1 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   color: var(--color-heading);
   text-align: center;
+  line-height: 1.2;
 }
 
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.25rem;
   flex: 1;
 }
 
 .sidebar-nav a {
   display: block;
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
   background: transparent;
   color: var(--color-text);
   text-decoration: none;
   font-weight: 500;
+  font-size: 0.9rem;
   transition: all 0.2s ease;
+  text-align: center;
 }
 
 .sidebar-nav a:hover {
@@ -181,10 +199,66 @@ watch(theme, (value) => {
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.24);
 }
 
+.theme-section {
+  margin: 1rem 0;
+  display: flex;
+  justify-content: center;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.theme-toggle:hover {
+  background: var(--color-accent-soft);
+}
+
+.theme-toggle__track {
+  position: relative;
+  width: 2.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+}
+
+.theme-toggle__thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--color-accent-strong);
+  transition: transform 0.2s ease;
+}
+
+.theme-toggle.is-dark .theme-toggle__thumb {
+  transform: translateX(1.2rem);
+}
+
+.theme-toggle__label {
+  min-width: 3rem;
+  text-align: left;
+  font-size: 0.8rem;
+}
+
 .sidebar-footer {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
   margin-top: auto;
 }
 
