@@ -58,7 +58,7 @@ watch(theme, (value) => {
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h1>Finanz<br>Cockpit</h1>
+        <h1>Finanz<br />Cockpit</h1>
       </div>
 
       <nav class="sidebar-nav">
@@ -70,22 +70,22 @@ watch(theme, (value) => {
         <RouterLink to="/help">Hilfe</RouterLink>
       </nav>
 
-      <div class="theme-section">
-        <button
-          class="theme-toggle"
-          :class="{ 'is-dark': isDark }"
-          type="button"
-          aria-label="Farbschema wechseln"
-          @click="toggleTheme"
-        >
-          <span class="theme-toggle__track">
-            <span class="theme-toggle__thumb" />
-          </span>
-          <span class="theme-toggle__label">{{ isDark ? 'Dunkel' : 'Hell' }}</span>
-        </button>
-      </div>
-
       <div class="sidebar-footer">
+        <div class="theme-section">
+          <button
+            class="theme-toggle"
+            :class="{ 'is-dark': isDark }"
+            type="button"
+            aria-label="Farbschema wechseln"
+            @click="toggleTheme"
+          >
+            <span class="theme-toggle__track">
+              <span class="theme-toggle__thumb" />
+            </span>
+            <span class="theme-toggle__label">{{ isDark ? 'Dunkel' : 'Hell' }}</span>
+          </button>
+        </div>
+
         <div v-if="!authStore.isAuthenticated" class="sidebar-auth">
           <RouterLink to="/login" class="auth-link">Login</RouterLink>
         </div>
@@ -159,7 +159,6 @@ watch(theme, (value) => {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  flex: 1;
 }
 
 .sidebar-nav a {
@@ -187,7 +186,6 @@ watch(theme, (value) => {
 }
 
 .theme-section {
-  margin: 1rem 0;
   display: flex;
   justify-content: center;
 }
@@ -246,6 +244,7 @@ watch(theme, (value) => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  margin-top: 1rem;
 }
 
 .sidebar-auth {
@@ -366,7 +365,6 @@ watch(theme, (value) => {
 .theme-toggle:hover {
   background: var(--color-accent-soft);
 }
-
 
 .theme-toggle__thumb {
   position: absolute;

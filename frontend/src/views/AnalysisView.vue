@@ -45,6 +45,16 @@ interface DashboardResponse {
   }>
 }
 
+type CategoryDirection = 'income' | 'expense'
+
+type CategoryTotalEntry = {
+  key: string
+  label: string
+  total: number
+  count: number
+  type: CategoryDirection
+}
+
 const authStore = useAuthStore()
 const dashboard = ref<DashboardResponse | null>(null)
 const loading = ref(false)
@@ -58,41 +68,56 @@ const selectedCategory = ref<string | null>(null)
 
 const availableMonths = computed(() => dashboard.value?.filters.available_months ?? [])
 const availableYears = computed(() => dashboard.value?.filters.available_years ?? [])
-const categoryTotals = computed(() => {
-  const totals = new Map<string, { label: string; total: number; count: number }>()
+
+function buildCategoryTotals(type: CategoryDirection) {
+  const totals = new Map<string, CategoryTotalEntry>()
 
   for (const transaction of dashboard.value?.transactions ?? []) {
     const amount = Number(transaction.cashflow_amount ?? transaction.amount)
 
-    if (amount >= 0) {
+    if ((type === 'income' && amount <= 0) || (type === 'expense' && amount >= 0)) {
       continue
     }
 
-    const key = transaction.category_name || 'Unkategorisiert'
-    const entry = totals.get(key) ?? { label: key, total: 0, count: 0 }
+    const label = transaction.category_name || 'Unkategorisiert'
+    const key = `${type}:${label}`
+    const entry = totals.get(key) ?? { key, label, total: 0, count: 0, type }
     entry.total += Math.abs(amount)
     entry.count += 1
     totals.set(key, entry)
   }
 
   return Array.from(totals.values()).sort((left, right) => right.total - left.total)
-})
+}
 
-const maxCategoryTotal = computed(() => categoryTotals.value[0]?.total ?? 1)
-const selectedCategoryTotal = computed(
-  () => categoryTotals.value.find((entry) => entry.label === selectedCategory.value)?.total ?? 0,
+const incomeCategoryTotals = computed(() => buildCategoryTotals('income'))
+const expenseCategoryTotals = computed(() => buildCategoryTotals('expense'))
+const allCategoryTotals = computed(() => [
+  ...incomeCategoryTotals.value,
+  ...expenseCategoryTotals.value,
+])
+const maxIncomeCategoryTotal = computed(() => incomeCategoryTotals.value[0]?.total ?? 1)
+const maxExpenseCategoryTotal = computed(() => expenseCategoryTotals.value[0]?.total ?? 1)
+const selectedCategoryEntry = computed(
+  () => allCategoryTotals.value.find((entry) => entry.key === selectedCategory.value) ?? null,
 )
+const selectedCategoryTotal = computed(() => selectedCategoryEntry.value?.total ?? 0)
 const selectedCategoryTransactions = computed(() => {
-  if (!selectedCategory.value) {
+  const entry = selectedCategoryEntry.value
+
+  if (!entry) {
     return []
   }
 
   return (dashboard.value?.transactions ?? [])
     .filter((transaction) => {
       const amount = Number(transaction.cashflow_amount ?? transaction.amount)
-      const key = transaction.category_name || 'Unkategorisiert'
+      const label = transaction.category_name || 'Unkategorisiert'
 
-      return amount < 0 && key === selectedCategory.value
+      return (
+        label === entry.label &&
+        ((entry.type === 'income' && amount > 0) || (entry.type === 'expense' && amount < 0))
+      )
     })
     .sort((left, right) =>
       `${right.booking_date ?? ''}-${right.id}`.localeCompare(
@@ -116,8 +141,8 @@ function formatDate(date: string | null) {
   return new Intl.DateTimeFormat('de-DE').format(new Date(date))
 }
 
-function toggleCategory(label: string) {
-  selectedCategory.value = selectedCategory.value === label ? null : label
+function toggleCategory(key: string) {
+  selectedCategory.value = selectedCategory.value === key ? null : key
 }
 
 async function loadAnalysis() {
@@ -202,12 +227,12 @@ function navigateYear(direction: number) {
   loadAnalysis()
 }
 
-watch(categoryTotals, (entries) => {
+watch(allCategoryTotals, (entries) => {
   if (!selectedCategory.value) {
     return
   }
 
-  if (!entries.some((entry) => entry.label === selectedCategory.value)) {
+  if (!entries.some((entry) => entry.key === selectedCategory.value)) {
     selectedCategory.value = null
   }
 })
@@ -333,52 +358,99 @@ watch(
             <div class="section-header section-header--compact">
               <div>
                 <p class="eyebrow">Kategorien</p>
-                <h3>Ausgaben nach Kategorie</h3>
+                <h3>Einnahmen und Ausgaben nach Kategorie</h3>
               </div>
             </div>
 
-            <div v-if="categoryTotals.length" class="bar-list scroll-list">
-              <button
-                v-for="entry in categoryTotals"
-                :key="entry.label"
-                type="button"
-                class="bar-row bar-row--button"
-                :class="{ active: entry.label === selectedCategory }"
-                @click="toggleCategory(entry.label)"
-              >
-                <div class="bar-row__header">
-                  <span>{{ entry.label }}</span>
-                  <strong>{{ formatMoney(entry.total) }}</strong>
+            <div class="category-grid">
+              <div class="category-group">
+                <h4 class="category-group__title positive">Einnahmen</h4>
+                <div v-if="incomeCategoryTotals.length" class="bar-list scroll-list">
+                  <button
+                    v-for="entry in incomeCategoryTotals"
+                    :key="entry.key"
+                    type="button"
+                    class="bar-row bar-row--button"
+                    :class="{ active: entry.key === selectedCategory }"
+                    @click="toggleCategory(entry.key)"
+                  >
+                    <div class="bar-row__header">
+                      <span>{{ entry.label }}</span>
+                      <strong>{{ formatMoney(entry.total) }}</strong>
+                    </div>
+                    <div class="bar-track">
+                      <div
+                        class="bar-fill bar-fill--income"
+                        :style="{ width: `${(entry.total / maxIncomeCategoryTotal) * 100}%` }"
+                      />
+                    </div>
+                    <small class="bar-row__meta">{{ entry.count }} Buchungen</small>
+                  </button>
                 </div>
-                <div class="bar-track">
-                  <div
-                    class="bar-fill"
-                    :style="{ width: `${(entry.total / maxCategoryTotal) * 100}%` }"
-                  />
+                <p v-else class="muted">
+                  Für den gewählten Zeitraum liegen noch keine kategorisierten Einnahmen vor.
+                </p>
+              </div>
+
+              <div class="category-group">
+                <h4 class="category-group__title negative">Ausgaben</h4>
+                <div v-if="expenseCategoryTotals.length" class="bar-list scroll-list">
+                  <button
+                    v-for="entry in expenseCategoryTotals"
+                    :key="entry.key"
+                    type="button"
+                    class="bar-row bar-row--button"
+                    :class="{ active: entry.key === selectedCategory }"
+                    @click="toggleCategory(entry.key)"
+                  >
+                    <div class="bar-row__header">
+                      <span>{{ entry.label }}</span>
+                      <strong>{{ formatMoney(entry.total) }}</strong>
+                    </div>
+                    <div class="bar-track">
+                      <div
+                        class="bar-fill bar-fill--expense"
+                        :style="{ width: `${(entry.total / maxExpenseCategoryTotal) * 100}%` }"
+                      />
+                    </div>
+                    <small class="bar-row__meta">{{ entry.count }} Buchungen</small>
+                  </button>
                 </div>
-                <small class="bar-row__meta">{{ entry.count }} Buchungen</small>
-              </button>
+                <p v-else class="muted">
+                  Für den gewählten Zeitraum liegen noch keine kategorisierten Ausgaben vor.
+                </p>
+              </div>
             </div>
-            <p v-else>Für den gewählten Zeitraum liegen noch keine kategorisierten Ausgaben vor.</p>
           </section>
 
           <section class="analysis-detail analysis-panel">
             <div class="section-header section-header--compact">
               <div>
-                <p class="eyebrow">Buchungen</p>
-                <h3>{{ selectedCategory || 'Kategorie auswählen' }}</h3>
+                <p class="eyebrow">
+                  {{
+                    selectedCategoryEntry?.type === 'income'
+                      ? 'Einnahmen'
+                      : selectedCategoryEntry?.type === 'expense'
+                        ? 'Ausgaben'
+                        : 'Buchungen'
+                  }}
+                </p>
+                <h3>{{ selectedCategoryEntry?.label || 'Kategorie auswählen' }}</h3>
               </div>
-              <strong v-if="selectedCategory" class="negative">
+              <strong
+                v-if="selectedCategoryEntry"
+                :class="selectedCategoryEntry.type === 'income' ? 'positive' : 'negative'"
+              >
                 {{ formatMoney(selectedCategoryTotal) }}
               </strong>
             </div>
 
-            <p v-if="!categoryTotals.length">
-              Für den gewählten Zeitraum liegen noch keine kategorisierten Ausgaben vor.
+            <p v-if="!incomeCategoryTotals.length && !expenseCategoryTotals.length">
+              Für den gewählten Zeitraum liegen noch keine kategorisierten Buchungen vor.
             </p>
-            <p v-else-if="!selectedCategory" class="muted">
-              Klicke links auf eine Kategorie wie `Wohnen` oder `Lebensmittel`, um die passenden
-              Buchungen zu sehen.
+            <p v-else-if="!selectedCategoryEntry" class="muted">
+              Klicke links auf eine Kategorie wie `Gehalt`, `Wohnen` oder `Lebensmittel`, um die
+              passenden Buchungen zu sehen.
             </p>
             <div v-else class="transaction-list scroll-list">
               <p class="muted">
@@ -408,7 +480,13 @@ watch(
                     {{ transaction.description }}
                   </p>
                 </div>
-                <strong class="negative">
+                <strong
+                  :class="
+                    Number(transaction.cashflow_amount ?? transaction.amount) >= 0
+                      ? 'positive'
+                      : 'negative'
+                  "
+                >
                   {{
                     formatMoney(Math.abs(Number(transaction.cashflow_amount)), transaction.currency)
                   }}
@@ -566,6 +644,24 @@ select {
   min-height: 0;
 }
 
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.category-group {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.category-group__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
 .scroll-list {
   max-height: 40rem;
   overflow-y: auto;
@@ -663,7 +759,14 @@ select {
 .bar-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--color-accent-strong), #22c55e);
+}
+
+.bar-fill--income {
+  background: linear-gradient(90deg, #059669, #22c55e);
+}
+
+.bar-fill--expense {
+  background: linear-gradient(90deg, var(--color-accent-strong), #f97316);
 }
 
 .warning,
@@ -677,6 +780,10 @@ select {
 
 @media (max-width: 900px) {
   .analysis-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .category-grid {
     grid-template-columns: 1fr;
   }
 
