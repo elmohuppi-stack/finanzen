@@ -1,0 +1,10 @@
+vendor
+node_modules
+.env
+.env.production
+storage/logs
+storage/framework
+storage/*.key
+database/*.sqlite
+bootstrap/cache/*.php
+.git

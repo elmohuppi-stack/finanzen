@@ -1,0 +1,27 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env.production
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${API_PORT:-3022}:3000"
+    volumes:
+      - finanzen_database:/app/storage/database
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - ./frontend/.env.production
+    depends_on:
+      - api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3021}:3000"
+
+volumes:
+  finanzen_database:
