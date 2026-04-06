@@ -56,34 +56,37 @@ watch(theme, (value) => {
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
-      <div>
+    <aside class="sidebar">
+      <div class="sidebar-header">
         <h1>Finanzcockpit</h1>
       </div>
 
-      <div class="nav-block">
-        <nav>
-          <RouterLink to="/">Dashboard</RouterLink>
-          <RouterLink to="/transactions">Buchungen</RouterLink>
-          <RouterLink to="/categories">Kategorien</RouterLink>
-          <RouterLink to="/analysis">Auswertung</RouterLink>
-          <RouterLink to="/imports">Import</RouterLink>
-          <RouterLink to="/help">Hilfe</RouterLink>
-          <RouterLink v-if="!authStore.isAuthenticated" to="/login">Login</RouterLink>
-          <div v-else class="user-menu">
-            <button class="nav-action user-menu__trigger" type="button" @click="toggleUserMenu">
-              {{ authStore.user?.name || 'Kunde' }}
-              <span class="user-menu__chevron">▾</span>
-            </button>
+      <nav class="sidebar-nav">
+        <RouterLink to="/">Dashboard</RouterLink>
+        <RouterLink to="/transactions">Buchungen</RouterLink>
+        <RouterLink to="/categories">Kategorien</RouterLink>
+        <RouterLink to="/analysis">Auswertung</RouterLink>
+        <RouterLink to="/imports">Import</RouterLink>
+        <RouterLink to="/help">Hilfe</RouterLink>
+      </nav>
 
-            <div v-if="isUserMenuOpen" class="user-menu__dropdown">
-              <p class="user-menu__label">Angemeldet als</p>
-              <strong>{{ authStore.user?.name }}</strong>
-              <p class="user-menu__email">{{ authStore.user?.email }}</p>
-              <button class="user-menu__logout" type="button" @click="requestLogout">Logout</button>
-            </div>
+      <div class="sidebar-footer">
+        <div v-if="!authStore.isAuthenticated" class="sidebar-auth">
+          <RouterLink to="/login" class="auth-link">Login</RouterLink>
+        </div>
+        <div v-else class="user-menu">
+          <button class="nav-action user-menu__trigger" type="button" @click="toggleUserMenu">
+            {{ authStore.user?.name || 'Kunde' }}
+            <span class="user-menu__chevron">▾</span>
+          </button>
+
+          <div v-if="isUserMenuOpen" class="user-menu__dropdown">
+            <p class="user-menu__label">Angemeldet als</p>
+            <strong>{{ authStore.user?.name }}</strong>
+            <p class="user-menu__email">{{ authStore.user?.email }}</p>
+            <button class="user-menu__logout" type="button" @click="requestLogout">Logout</button>
           </div>
-        </nav>
+        </div>
 
         <button
           class="theme-toggle"
@@ -98,7 +101,7 @@ watch(theme, (value) => {
           <span class="theme-toggle__label">{{ isDark ? 'Dunkel' : 'Hell' }}</span>
         </button>
       </div>
-    </header>
+    </aside>
 
     <main class="content">
       <RouterView />
@@ -121,59 +124,123 @@ watch(theme, (value) => {
 
 <style scoped>
 .app-shell {
+  display: flex;
+  min-height: 100vh;
   width: min(100%, 1440px);
   margin: 0 auto;
-  padding: 0.85rem clamp(1rem, 2vw, 2rem) 1.5rem;
+  padding: 0;
 }
 
-.topbar {
+.sidebar {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  width: 240px;
+  min-height: 100vh;
+  padding: 1.5rem 1rem;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
-h1 {
+.sidebar-header {
+  margin-bottom: 2rem;
+}
+
+.sidebar-header h1 {
   margin: 0;
-  font-size: clamp(1.5rem, 2.4vw, 2rem);
+  font-size: 1.5rem;
   color: var(--color-heading);
+  text-align: center;
 }
 
-.nav-block {
+.sidebar-nav {
   display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: end;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
 }
 
-nav {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+.sidebar-nav a {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
 }
 
-nav a,
-.nav-action {
-  padding: 0.6rem 0.95rem;
-  border-radius: 999px;
+.sidebar-nav a:hover {
   background: var(--color-accent-soft);
   color: var(--color-accent-strong);
-  border: 1px solid transparent;
-  font-weight: 600;
 }
 
-.nav-action {
-  cursor: pointer;
+.sidebar-nav a.router-link-exact-active {
+  background: var(--color-accent-strong);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.24);
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: auto;
+}
+
+.sidebar-auth {
+  text-align: center;
+}
+
+.auth-link {
+  display: inline-block;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  text-decoration: none;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.auth-link:hover {
+  background: var(--color-accent-strong);
+  color: #fff;
+}
+
+.content {
+  flex: 1;
+  padding: 1.5rem clamp(1rem, 2vw, 2rem);
+  overflow-y: auto;
 }
 
 .user-menu {
   position: relative;
 }
 
+.nav-action {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  border-radius: 12px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  border: 1px solid transparent;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.nav-action:hover {
+  background: var(--color-accent-strong);
+  color: #fff;
+}
+
 .user-menu__trigger {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
 }
 
@@ -183,7 +250,8 @@ nav a,
 
 .user-menu__dropdown {
   position: absolute;
-  top: calc(100% + 0.5rem);
+  bottom: calc(100% + 0.5rem);
+  left: 0;
   right: 0;
   min-width: 220px;
   padding: 0.85rem;
@@ -220,36 +288,25 @@ nav a,
   cursor: pointer;
 }
 
-nav a.router-link-exact-active {
-  background: var(--color-accent-strong);
-  color: #fff;
-  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.24);
-}
-
 .theme-toggle {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.6rem;
-  border-radius: 999px;
+  border-radius: 12px;
   padding: 0.55rem 0.85rem;
   font-weight: 700;
   cursor: pointer;
-}
-
-.theme-toggle {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
+  transition: all 0.2s ease;
 }
 
-.theme-toggle__track {
-  position: relative;
-  width: 2.8rem;
-  height: 1.55rem;
-  border-radius: 999px;
+.theme-toggle:hover {
   background: var(--color-accent-soft);
-  border: 1px solid var(--color-border);
 }
+
 
 .theme-toggle__thumb {
   position: absolute;
