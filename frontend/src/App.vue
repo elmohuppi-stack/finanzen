@@ -102,19 +102,6 @@ watch(theme, (value) => {
             <button class="user-menu__logout" type="button" @click="requestLogout">Logout</button>
           </div>
         </div>
-
-        <button
-          class="theme-toggle"
-          :class="{ 'is-dark': isDark }"
-          type="button"
-          aria-label="Farbschema wechseln"
-          @click="toggleTheme"
-        >
-          <span class="theme-toggle__track">
-            <span class="theme-toggle__thumb" />
-          </span>
-          <span class="theme-toggle__label">{{ isDark ? 'Dunkel' : 'Hell' }}</span>
-        </button>
       </div>
     </aside>
 
@@ -259,7 +246,6 @@ watch(theme, (value) => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  margin-top: auto;
 }
 
 .sidebar-auth {
