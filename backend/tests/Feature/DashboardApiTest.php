@@ -343,4 +343,119 @@ class DashboardApiTest extends TestCase
     {
         $this->getJson('/api/dashboard')->assertUnauthorized();
     }
+
+    public function test_dashboard_can_filter_by_year_view(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Test Account',
+            'account_type' => 'checking_account',
+            'institution' => 'Test',
+            'currency' => 'EUR',
+        ]);
+
+        // Transactions in 2025 and 2026
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2025-12-31',
+            'value_date' => '2025-12-31',
+            'amount' => '-50.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Test',
+            'description' => '2025 expense',
+            'transaction_hash' => hash('sha256', '2025-expense'),
+            'source_system' => 'test',
+        ]);
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-01-01',
+            'value_date' => '2026-01-01',
+            'amount' => '100.00',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'Test',
+            'description' => '2026 income',
+            'transaction_hash' => hash('sha256', '2026-income'),
+            'source_system' => 'test',
+        ]);
+
+        $response = $this->getJson('/api/dashboard?view=year&year=2026');
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertEquals('year', $data['filters']['selected_view']);
+        $this->assertEquals(2026, $data['filters']['selected_year']);
+        $this->assertContains(2026, $data['filters']['available_years']);
+        $this->assertContains(2025, $data['filters']['available_years']);
+        // Should only include 2026 transaction
+        $this->assertCount(1, $data['transactions']);
+        $this->assertEquals('100.00', $data['transactions'][0]['amount']);
+    }
+
+    public function test_dashboard_can_filter_by_custom_range_view(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Test Account',
+            'account_type' => 'checking_account',
+            'institution' => 'Test',
+            'currency' => 'EUR',
+        ]);
+
+        // Transactions in different dates
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-03-01',
+            'value_date' => '2026-03-01',
+            'amount' => '-25.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Test',
+            'description' => 'March expense',
+            'transaction_hash' => hash('sha256', 'march-expense'),
+            'source_system' => 'test',
+        ]);
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-01',
+            'value_date' => '2026-04-01',
+            'amount' => '200.00',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'Test',
+            'description' => 'April income',
+            'transaction_hash' => hash('sha256', 'april-income'),
+            'source_system' => 'test',
+        ]);
+        Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-05-01',
+            'value_date' => '2026-05-01',
+            'amount' => '-75.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Test',
+            'description' => 'May expense',
+            'transaction_hash' => hash('sha256', 'may-expense'),
+            'source_system' => 'test',
+        ]);
+
+        $response = $this->getJson('/api/dashboard?view=range&date_from=2026-03-15&date_to=2026-04-15');
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertEquals('range', $data['filters']['selected_view']);
+        $this->assertEquals('2026-03-15', $data['filters']['selected_date_from']);
+        $this->assertEquals('2026-04-15', $data['filters']['selected_date_to']);
+        // Should only include April transaction
+        $this->assertCount(1, $data['transactions']);
+        $this->assertEquals('200.00', $data['transactions'][0]['amount']);
+    }
 }

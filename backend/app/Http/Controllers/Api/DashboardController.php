@@ -17,9 +17,11 @@ class DashboardController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'view' => ['nullable', 'in:month,all'],
+            'view' => ['nullable', 'in:month,year,range,all'],
             'month' => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
             'year' => ['nullable', 'integer', 'between:2000,2100'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date'],
             'account_id' => ['nullable', 'integer'],
             'query' => ['nullable', 'string', 'max:120'],
         ]);
@@ -74,7 +76,18 @@ class DashboardController extends Controller
             ->sortDesc()
             ->values();
 
+        $availableYears = $balanceTransactions
+            ->pluck('booking_date')
+            ->map(static fn($date): string => substr((string) $date, 0, 4))
+            ->filter()
+            ->unique()
+            ->sortDesc()
+            ->values();
+
         $selectedMonth = $validated['month'] ?? ($availableMonths->first() ?: now()->format('Y-m'));
+        $selectedYear = $validated['year'] ?? ($availableYears->first() ?: (int) now()->format('Y'));
+        $selectedDateFrom = $validated['date_from'] ?? null;
+        $selectedDateTo = $validated['date_to'] ?? null;
         $listTransactionQuery = clone $baseTransactionQuery;
         $filteredTransactionQuery = clone $cashflowBaseTransactionQuery;
 
@@ -87,6 +100,12 @@ class DashboardController extends Controller
 
             $listTransactionQuery->whereBetween('booking_date', $range);
             $filteredTransactionQuery->whereBetween('booking_date', $range);
+        } elseif ($selectedView === 'year') {
+            $listTransactionQuery->whereYear('booking_date', $selectedYear);
+            $filteredTransactionQuery->whereYear('booking_date', $selectedYear);
+        } elseif ($selectedView === 'range' && $selectedDateFrom && $selectedDateTo) {
+            $listTransactionQuery->whereBetween('booking_date', [$selectedDateFrom, $selectedDateTo]);
+            $filteredTransactionQuery->whereBetween('booking_date', [$selectedDateFrom, $selectedDateTo]);
         }
 
         $cashflowTransactions = (clone $filteredTransactionQuery)
@@ -252,10 +271,12 @@ class DashboardController extends Controller
             'filters' => [
                 'selected_view' => $selectedView,
                 'selected_month' => $selectedView === 'month' ? $selectedMonth : null,
+                'selected_year' => $selectedYear,
+                'selected_date_from' => $selectedView === 'range' ? $selectedDateFrom : null,
+                'selected_date_to' => $selectedView === 'range' ? $selectedDateTo : null,
                 'selected_account_id' => $selectedAccountId,
                 'search_query' => $searchQuery,
                 'available_months' => $availableMonths,
-                'selected_year' => $selectedYear,
                 'available_years' => $availableYears,
             ],
             'accounts' => $accounts,
