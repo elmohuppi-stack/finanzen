@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\CategoryRule;
 use App\Services\CategoryRuleService;
+use App\Services\DashboardCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -45,7 +46,7 @@ class CategoryRuleController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $user = $request->user();
 
@@ -75,12 +76,14 @@ class CategoryRuleController extends Controller
             'is_active' => $validated['is_active'] ?? true,
         ])->load('category:id,name,color');
 
+        $dashboardCacheService->invalidateUser($user->id);
+
         return response()->json([
             'rule' => $this->serializeRule($rule),
         ], 201);
     }
 
-    public function update(Request $request, int $ruleId): JsonResponse
+    public function update(Request $request, int $ruleId, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $user = $request->user();
 
@@ -115,6 +118,7 @@ class CategoryRuleController extends Controller
 
         $rule->save();
         $rule->load('category:id,name,color');
+        $dashboardCacheService->invalidateUser($user->id);
 
         return response()->json([
             'rule' => $this->serializeRule($rule),
@@ -131,7 +135,7 @@ class CategoryRuleController extends Controller
         ]);
     }
 
-    public function import(Request $request, CategoryRuleService $categoryRuleService): JsonResponse
+    public function import(Request $request, CategoryRuleService $categoryRuleService, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $validated = $request->validate([
             'csv_content' => ['required', 'string'],
@@ -144,14 +148,17 @@ class CategoryRuleController extends Controller
             $validated['mode'] ?? 'merge',
         );
 
+        $dashboardCacheService->invalidateUser($request->user()->id);
+
         return response()->json([
             'summary' => $summary,
         ]);
     }
 
-    public function importDefaults(Request $request, CategoryRuleService $categoryRuleService): JsonResponse
+    public function importDefaults(Request $request, CategoryRuleService $categoryRuleService, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $summary = $categoryRuleService->importDefaultRules($request->user());
+        $dashboardCacheService->invalidateUser($request->user()->id);
 
         return response()->json([
             'summary' => $summary,
@@ -182,16 +189,17 @@ class CategoryRuleController extends Controller
         ));
     }
 
-    public function reset(Request $request, CategoryRuleService $categoryRuleService): JsonResponse
+    public function reset(Request $request, CategoryRuleService $categoryRuleService, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $deletedRules = $categoryRuleService->resetRulesForUser($request->user());
+        $dashboardCacheService->invalidateUser($request->user()->id);
 
         return response()->json([
             'deleted_rules' => $deletedRules,
         ]);
     }
 
-    public function destroy(Request $request, int $ruleId): JsonResponse
+    public function destroy(Request $request, int $ruleId, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         CategoryRule::query()
             ->where('id', $ruleId)
@@ -199,14 +207,17 @@ class CategoryRuleController extends Controller
             ->firstOrFail()
             ->delete();
 
+        $dashboardCacheService->invalidateUser($request->user()->id);
+
         return response()->json([
             'deleted' => true,
         ]);
     }
 
-    public function apply(Request $request, CategoryRuleService $categoryRuleService): JsonResponse
+    public function apply(Request $request, CategoryRuleService $categoryRuleService, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $summary = $categoryRuleService->applyRulesForUser($request->user());
+        $dashboardCacheService->invalidateUser($request->user()->id);
 
         return response()->json([
             'summary' => $summary,

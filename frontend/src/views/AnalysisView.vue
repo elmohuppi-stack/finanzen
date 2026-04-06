@@ -90,6 +90,7 @@ const selectedYear = ref(new Date().getFullYear())
 const selectedDateFrom = ref('')
 const selectedDateTo = ref('')
 const selectedCategory = ref<string | null>(null)
+const analysisResponseCache = new Map<string, DashboardResponse>()
 
 const availableMonths = computed(() => dashboard.value?.filters.available_months ?? [])
 const availableYears = computed(() => dashboard.value?.filters.available_years ?? [])
@@ -271,6 +272,88 @@ function toggleCategory(key: string) {
   selectedCategory.value = selectedCategory.value === key ? null : key
 }
 
+function getAnalysisParams(
+  overrides: Partial<{
+    view: 'month' | 'year' | 'range' | 'all'
+    mode: AnalysisMode
+    month: string
+    year: number
+    dateFrom: string
+    dateTo: string
+  }> = {},
+) {
+  const nextView = overrides.view ?? viewMode.value
+  const nextMode = overrides.mode ?? analysisMode.value
+  const params = new URLSearchParams({
+    view: nextView,
+    mode: nextMode,
+    scope: 'analysis',
+  })
+
+  if (nextView === 'month') {
+    const month = overrides.month ?? selectedMonth.value
+    if (month) {
+      params.set('month', month)
+    }
+  } else if (nextView === 'year') {
+    params.set('year', String(overrides.year ?? selectedYear.value))
+  } else if (nextView === 'range') {
+    const dateFrom = overrides.dateFrom ?? selectedDateFrom.value
+    const dateTo = overrides.dateTo ?? selectedDateTo.value
+
+    if (dateFrom && dateTo) {
+      params.set('date_from', dateFrom)
+      params.set('date_to', dateTo)
+    }
+  }
+
+  return params
+}
+
+function getShiftedMonth(month: string, direction: number) {
+  const date = new Date(`${month}-01`)
+  date.setMonth(date.getMonth() + direction)
+  return date.toISOString().slice(0, 7)
+}
+
+function clearAnalysisCache() {
+  analysisResponseCache.clear()
+}
+
+async function prefetchAnalysis(params: URLSearchParams) {
+  if (!authStore.token) {
+    return
+  }
+
+  const cacheKey = params.toString()
+
+  if (analysisResponseCache.has(cacheKey)) {
+    return
+  }
+
+  try {
+    const response = await apiFetch<DashboardResponse>(
+      `/api/dashboard?${cacheKey}`,
+      {},
+      authStore.token,
+    )
+    analysisResponseCache.set(cacheKey, response)
+  } catch {
+    // Ignore background prefetch failures.
+  }
+}
+
+function prefetchAdjacentMonths() {
+  if (viewMode.value !== 'month' || !selectedMonth.value) {
+    return
+  }
+
+  void Promise.all([
+    prefetchAnalysis(getAnalysisParams({ month: getShiftedMonth(selectedMonth.value, -1) })),
+    prefetchAnalysis(getAnalysisParams({ month: getShiftedMonth(selectedMonth.value, 1) })),
+  ])
+}
+
 async function setAnalysisMode(mode: AnalysisMode) {
   if (analysisMode.value === mode) {
     return
@@ -280,38 +363,43 @@ async function setAnalysisMode(mode: AnalysisMode) {
   await loadAnalysis()
 }
 
-async function loadAnalysis() {
+async function loadAnalysis(forceRefreshOrEvent?: boolean | Event) {
   if (!authStore.token) {
     dashboard.value = null
     return
+  }
+
+  const forceRefresh = forceRefreshOrEvent === true
+  const params = getAnalysisParams()
+  const cacheKey = params.toString()
+
+  if (!forceRefresh) {
+    const cachedResponse = analysisResponseCache.get(cacheKey)
+
+    if (cachedResponse) {
+      dashboard.value = cachedResponse
+      analysisMode.value = cachedResponse.filters.selected_mode ?? analysisMode.value
+      error.value = ''
+      loading.value = false
+      prefetchAdjacentMonths()
+      return
+    }
   }
 
   loading.value = true
   error.value = ''
 
   try {
-    const params = new URLSearchParams({
-      view: viewMode.value,
-      mode: analysisMode.value,
-    })
-
-    if (viewMode.value === 'month' && selectedMonth.value) {
-      params.set('month', selectedMonth.value)
-    } else if (viewMode.value === 'year' && selectedYear.value) {
-      params.set('year', selectedYear.value.toString())
-    } else if (viewMode.value === 'range' && selectedDateFrom.value && selectedDateTo.value) {
-      params.set('date_from', selectedDateFrom.value)
-      params.set('date_to', selectedDateTo.value)
-    }
-
     const response = await apiFetch<DashboardResponse>(
-      `/api/dashboard?${params.toString()}`,
+      `/api/dashboard?${cacheKey}`,
       {},
       authStore.token,
     )
 
     dashboard.value = response
+    analysisResponseCache.set(cacheKey, response)
     analysisMode.value = response.filters.selected_mode ?? analysisMode.value
+    prefetchAdjacentMonths()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Auswertung konnte nicht geladen werden.'
   } finally {
@@ -343,7 +431,8 @@ async function saveTransactionCategory(transaction: TransactionItem) {
     )
 
     successMessage.value = 'Kategorie gespeichert.'
-    await loadAnalysis()
+    clearAnalysisCache()
+    await loadAnalysis(true)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Kategorie konnte nicht gespeichert werden.'
   } finally {
@@ -444,7 +533,8 @@ async function saveTransactionRule(transaction: TransactionItem) {
     )
 
     successMessage.value = `Regel gespeichert. ${response.summary.updated_transactions} Buchungen wurden aktualisiert.`
-    await loadAnalysis()
+    clearAnalysisCache()
+    await loadAnalysis(true)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Regel konnte nicht gespeichert werden.'
   } finally {
@@ -523,6 +613,7 @@ watch(
   () => authStore.token,
   async (token) => {
     if (!token) {
+      clearAnalysisCache()
       dashboard.value = null
       return
     }

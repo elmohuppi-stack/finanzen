@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\TransactionSplit;
+use App\Services\DashboardCacheService;
 use App\Services\TransactionTransferService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class TransactionController extends Controller
         Request $request,
         int $transactionId,
         TransactionTransferService $transactionTransferService,
+        DashboardCacheService $dashboardCacheService,
     ): JsonResponse {
         $user = $request->user();
 
@@ -64,6 +66,7 @@ class TransactionController extends Controller
         }
 
         $transactionTransferService->syncTransferState($transaction, $category?->category_type);
+        $dashboardCacheService->invalidateUser($user->id);
 
         $transaction->load(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name']);
 

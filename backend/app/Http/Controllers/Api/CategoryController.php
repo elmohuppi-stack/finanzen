@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Services\DashboardCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -11,7 +12,7 @@ use Illuminate\Validation\Rule;
 
 class CategoryController extends Controller
 {
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $user = $request->user();
 
@@ -31,12 +32,14 @@ class CategoryController extends Controller
             'sort_order' => ((int) Category::query()->where('user_id', $user->id)->max('sort_order')) + 10,
         ]);
 
+        $dashboardCacheService->invalidateUser($user->id);
+
         return response()->json([
             'category' => $this->serializeCategory($category),
         ], 201);
     }
 
-    public function update(Request $request, int $categoryId): JsonResponse
+    public function update(Request $request, int $categoryId, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $category = $this->findEditableCategory($request, $categoryId);
 
@@ -60,15 +63,17 @@ class CategoryController extends Controller
         }
 
         $category->save();
+        $dashboardCacheService->invalidateUser($request->user()->id);
 
         return response()->json([
             'category' => $this->serializeCategory($category),
         ]);
     }
 
-    public function destroy(Request $request, int $categoryId): JsonResponse
+    public function destroy(Request $request, int $categoryId, DashboardCacheService $dashboardCacheService): JsonResponse
     {
         $this->findEditableCategory($request, $categoryId)->delete();
+        $dashboardCacheService->invalidateUser($request->user()->id);
 
         return response()->json([
             'deleted' => true,

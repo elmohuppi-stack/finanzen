@@ -8,12 +8,15 @@ use App\Models\Category;
 use App\Models\FinanceImport;
 use App\Models\Transaction;
 use App\Models\TransactionSplit;
+use App\Services\DashboardCacheService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
+    public function __construct(private readonly DashboardCacheService $dashboardCacheService) {}
+
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -25,13 +28,35 @@ class DashboardController extends Controller
             'date_to' => ['nullable', 'date'],
             'account_id' => ['nullable', 'integer'],
             'query' => ['nullable', 'string', 'max:120'],
+            'scope' => ['nullable', 'in:full,analysis'],
         ]);
 
         $user = $request->user();
+        $responseScope = $validated['scope'] ?? 'full';
         $selectedView = $validated['view'] ?? 'month';
         $selectedMode = $validated['mode'] ?? 'calendar';
         $selectedAccountId = isset($validated['account_id']) ? (int) $validated['account_id'] : null;
         $searchQuery = trim((string) ($validated['query'] ?? ''));
+        $cacheKey = null;
+
+        if ($responseScope === 'analysis' && app()->isProduction()) {
+            $cacheKey = $this->dashboardCacheService->analysisCacheKey($user->id, [
+                'view' => $selectedView,
+                'mode' => $selectedMode,
+                'month' => $validated['month'] ?? null,
+                'year' => isset($validated['year']) ? (int) $validated['year'] : null,
+                'date_from' => $validated['date_from'] ?? null,
+                'date_to' => $validated['date_to'] ?? null,
+                'account_id' => $selectedAccountId,
+                'query' => $searchQuery !== '' ? $searchQuery : null,
+            ]);
+
+            $cachedPayload = cache()->get($cacheKey);
+
+            if (is_array($cachedPayload)) {
+                return response()->json($cachedPayload);
+            }
+        }
 
         $accountScopedTransactionQuery = Transaction::query()
             ->whereHas('account', fn($query) => $query->where('user_id', $user->id));
@@ -65,10 +90,15 @@ class DashboardController extends Controller
             $applySearch($cashflowBaseTransactionQuery);
         }
 
-        $balanceTransactions = (clone $accountScopedTransactionQuery)
-            ->with(['splits.category:id,name,category_type'])
+        $balanceTransactionQuery = (clone $accountScopedTransactionQuery)
             ->orderBy('booking_date')
-            ->orderBy('id')
+            ->orderBy('id');
+
+        if ($selectedMode === 'budget') {
+            $balanceTransactionQuery->with(['splits.category:id,name,category_type']);
+        }
+
+        $balanceTransactions = $balanceTransactionQuery
             ->get(['id', 'account_id', 'booking_date', 'amount', 'description', 'counterparty_name', 'metadata', 'is_hidden_from_cashflow']);
 
         $availableMonths = $balanceTransactions
@@ -92,11 +122,24 @@ class DashboardController extends Controller
         $listTransactionQuery = clone $baseTransactionQuery;
         $filteredTransactionQuery = clone $cashflowBaseTransactionQuery;
 
-        $cashflowTransactions = $this->filterTransactionsForView(
+        $cashflowTransactionDataQuery = $this->applyDateWindowToQuery(
             (clone $filteredTransactionQuery)
-                ->with(['splits.category:id,name,category_type'])
                 ->orderByDesc('booking_date')
-                ->orderByDesc('id')
+                ->orderByDesc('id'),
+            $selectedView,
+            $selectedMode,
+            $selectedMonth,
+            $selectedYear,
+            $selectedDateFrom,
+            $selectedDateTo,
+        );
+
+        if ($selectedMode === 'budget') {
+            $cashflowTransactionDataQuery->with(['splits.category:id,name,category_type']);
+        }
+
+        $cashflowTransactions = $this->filterTransactionsForView(
+            $cashflowTransactionDataQuery
                 ->get(['id', 'booking_date', 'amount', 'description', 'counterparty_name', 'metadata', 'is_hidden_from_cashflow']),
             $selectedView,
             $selectedMode,
@@ -169,12 +212,21 @@ class DashboardController extends Controller
             ])
             ->values();
 
-        $transactions = $this->filterTransactionsForView(
+        $transactionDataQuery = $this->applyDateWindowToQuery(
             (clone $listTransactionQuery)
                 ->with(['account:id,name', 'splits.category:id,name,color,category_type', 'splits.categoryRule:id,name'])
                 ->orderByDesc('booking_date')
-                ->orderByDesc('id')
-                ->get(),
+                ->orderByDesc('id'),
+            $selectedView,
+            $selectedMode,
+            $selectedMonth,
+            $selectedYear,
+            $selectedDateFrom,
+            $selectedDateTo,
+        );
+
+        $transactions = $this->filterTransactionsForView(
+            $transactionDataQuery->get(),
             $selectedView,
             $selectedMode,
             $selectedMonth,
@@ -219,7 +271,8 @@ class DashboardController extends Controller
             })
             ->values();
 
-        $imports = FinanceImport::query()
+        $imports = $responseScope === 'full'
+            ? FinanceImport::query()
             ->where('user_id', $user->id)
             ->with('account:id,name,account_type')
             ->withMin('transactions', 'booking_date')
@@ -246,7 +299,8 @@ class DashboardController extends Controller
                 'account_name' => $import->account?->name,
                 'account_type' => $import->account?->account_type,
             ])
-            ->values();
+            ->values()
+            : collect();
 
         $categories = Category::query()
             ->where(fn($query) => $query->whereNull('user_id')->orWhere('user_id', $user->id))
@@ -262,7 +316,7 @@ class DashboardController extends Controller
             ])
             ->values();
 
-        return response()->json([
+        $payload = [
             'summary' => [
                 'account_count' => $accounts->count(),
                 'transaction_count' => $transactions->count(),
@@ -282,16 +336,73 @@ class DashboardController extends Controller
                 'selected_date_to' => $selectedView === 'range' ? $selectedDateTo : null,
                 'selected_account_id' => $selectedAccountId,
                 'search_query' => $searchQuery,
-                'available_months' => $availableMonths,
-                'available_years' => $availableYears,
+                'available_months' => $availableMonths->all(),
+                'available_years' => $availableYears->all(),
             ],
-            'accounts' => $accounts,
-            'categories' => $categories,
-            'transactions' => $transactions,
-            'recent_transactions' => $transactions->take(10)->values(),
-            'imports' => $imports,
-            'monthly_balances' => $this->buildMonthlyBalances($accountModels, $balanceTransactions, $selectedYear),
-        ]);
+            'accounts' => $accounts->all(),
+            'categories' => $categories->all(),
+            'transactions' => $transactions->all(),
+            'recent_transactions' => $transactions->take(10)->values()->all(),
+            'imports' => $imports->all(),
+            'monthly_balances' => $responseScope === 'full'
+                ? $this->buildMonthlyBalances($accountModels, $balanceTransactions, $selectedYear)->all()
+                : [],
+        ];
+
+        if ($cacheKey !== null) {
+            cache()->put($cacheKey, $payload, now()->addSeconds(45));
+        }
+
+        return response()->json($payload);
+    }
+
+    private function applyDateWindowToQuery(
+        $query,
+        string $selectedView,
+        string $selectedMode,
+        string $selectedMonth,
+        int $selectedYear,
+        ?string $selectedDateFrom,
+        ?string $selectedDateTo,
+    ) {
+        if ($selectedView === 'all') {
+            return $query;
+        }
+
+        if ($selectedMode === 'calendar') {
+            return match ($selectedView) {
+                'month' => $query->whereBetween('booking_date', [
+                    CarbonImmutable::parse($selectedMonth . '-01')->startOfMonth()->toDateString(),
+                    CarbonImmutable::parse($selectedMonth . '-01')->endOfMonth()->toDateString(),
+                ]),
+                'year' => $query->whereBetween('booking_date', [
+                    CarbonImmutable::create($selectedYear, 1, 1)->toDateString(),
+                    CarbonImmutable::create($selectedYear, 12, 31)->toDateString(),
+                ]),
+                'range' => $selectedDateFrom && $selectedDateTo
+                    ? $query->whereBetween('booking_date', [$selectedDateFrom, $selectedDateTo])
+                    : $query,
+                default => $query,
+            };
+        }
+
+        return match ($selectedView) {
+            'month' => $query->whereBetween('booking_date', [
+                CarbonImmutable::parse($selectedMonth . '-01')->startOfMonth()->subDays(7)->toDateString(),
+                CarbonImmutable::parse($selectedMonth . '-01')->endOfMonth()->toDateString(),
+            ]),
+            'year' => $query->whereBetween('booking_date', [
+                CarbonImmutable::create($selectedYear - 1, 12, 25)->toDateString(),
+                CarbonImmutable::create($selectedYear, 12, 31)->toDateString(),
+            ]),
+            'range' => $selectedDateFrom && $selectedDateTo
+                ? $query->whereBetween('booking_date', [
+                    CarbonImmutable::parse($selectedDateFrom)->subDays(7)->toDateString(),
+                    CarbonImmutable::parse($selectedDateTo)->toDateString(),
+                ])
+                : $query,
+            default => $query,
+        };
     }
 
     private function filterTransactionsForView(
