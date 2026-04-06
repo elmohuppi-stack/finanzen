@@ -289,7 +289,12 @@ watch(
                 placeholder="Von"
               />
               <span>bis</span>
-              <input type="date" v-model="selectedDateTo" @change="loadAnalysis" placeholder="Bis" />
+              <input
+                type="date"
+                v-model="selectedDateTo"
+                @change="loadAnalysis"
+                placeholder="Bis"
+              />
             </div>
           </div>
         </div>
@@ -442,8 +447,10 @@ watch(
 
 .header-toolbar {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 1rem;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .toolbar,
@@ -452,10 +459,6 @@ watch(
   gap: 0.75rem;
   flex-wrap: wrap;
   align-items: center;
-}
-
-.stats {
-  justify-content: flex-end;
 }
 
 .stat-item {
