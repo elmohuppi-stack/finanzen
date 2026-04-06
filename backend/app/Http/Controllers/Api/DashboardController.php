@@ -18,6 +18,7 @@ class DashboardController extends Controller
     {
         $validated = $request->validate([
             'view' => ['nullable', 'in:month,year,range,all'],
+            'mode' => ['nullable', 'in:calendar,budget'],
             'month' => ['nullable', 'regex:/^\d{4}-\d{2}$/'],
             'year' => ['nullable', 'integer', 'between:2000,2100'],
             'date_from' => ['nullable', 'date'],
@@ -28,6 +29,7 @@ class DashboardController extends Controller
 
         $user = $request->user();
         $selectedView = $validated['view'] ?? 'month';
+        $selectedMode = $validated['mode'] ?? 'calendar';
         $selectedAccountId = isset($validated['account_id']) ? (int) $validated['account_id'] : null;
         $searchQuery = trim((string) ($validated['query'] ?? ''));
 
@@ -64,52 +66,45 @@ class DashboardController extends Controller
         }
 
         $balanceTransactions = (clone $accountScopedTransactionQuery)
+            ->with(['splits.category:id,name,category_type'])
             ->orderBy('booking_date')
             ->orderBy('id')
-            ->get(['id', 'account_id', 'booking_date', 'amount', 'description', 'metadata', 'is_hidden_from_cashflow']);
+            ->get(['id', 'account_id', 'booking_date', 'amount', 'description', 'counterparty_name', 'metadata', 'is_hidden_from_cashflow']);
 
         $availableMonths = $balanceTransactions
-            ->pluck('booking_date')
-            ->map(static fn($date): string => substr((string) $date, 0, 7))
+            ->map(fn(Transaction $transaction): ?string => $this->resolveAnalysisDate($transaction, $selectedMode)?->format('Y-m'))
             ->filter()
             ->unique()
             ->sortDesc()
             ->values();
 
         $availableYears = $balanceTransactions
-            ->pluck('booking_date')
-            ->map(static fn($date): string => substr((string) $date, 0, 4))
+            ->map(fn(Transaction $transaction): ?int => $this->resolveAnalysisDate($transaction, $selectedMode)?->year)
             ->filter()
             ->unique()
             ->sortDesc()
             ->values();
 
         $selectedMonth = $validated['month'] ?? ($availableMonths->first() ?: now()->format('Y-m'));
-        $selectedYear = $validated['year'] ?? ($availableYears->first() ?: (int) now()->format('Y'));
+        $selectedYear = isset($validated['year']) ? (int) $validated['year'] : ($availableYears->first() ?: (int) now()->format('Y'));
         $selectedDateFrom = $validated['date_from'] ?? null;
         $selectedDateTo = $validated['date_to'] ?? null;
         $listTransactionQuery = clone $baseTransactionQuery;
         $filteredTransactionQuery = clone $cashflowBaseTransactionQuery;
 
-        if ($selectedView === 'month') {
-            $month = CarbonImmutable::createFromFormat('Y-m', $selectedMonth);
-            $range = [
-                $month->startOfMonth()->toDateString(),
-                $month->endOfMonth()->toDateString(),
-            ];
-
-            $listTransactionQuery->whereBetween('booking_date', $range);
-            $filteredTransactionQuery->whereBetween('booking_date', $range);
-        } elseif ($selectedView === 'year') {
-            $listTransactionQuery->whereYear('booking_date', $selectedYear);
-            $filteredTransactionQuery->whereYear('booking_date', $selectedYear);
-        } elseif ($selectedView === 'range' && $selectedDateFrom && $selectedDateTo) {
-            $listTransactionQuery->whereBetween('booking_date', [$selectedDateFrom, $selectedDateTo]);
-            $filteredTransactionQuery->whereBetween('booking_date', [$selectedDateFrom, $selectedDateTo]);
-        }
-
-        $cashflowTransactions = (clone $filteredTransactionQuery)
-            ->get(['id', 'amount', 'description', 'metadata', 'is_hidden_from_cashflow']);
+        $cashflowTransactions = $this->filterTransactionsForView(
+            (clone $filteredTransactionQuery)
+                ->with(['splits.category:id,name,category_type'])
+                ->orderByDesc('booking_date')
+                ->orderByDesc('id')
+                ->get(['id', 'booking_date', 'amount', 'description', 'counterparty_name', 'metadata', 'is_hidden_from_cashflow']),
+            $selectedView,
+            $selectedMode,
+            $selectedMonth,
+            $selectedYear,
+            $selectedDateFrom,
+            $selectedDateTo,
+        );
 
         $income = 0.0;
         $expenses = 0.0;
@@ -137,8 +132,7 @@ class DashboardController extends Controller
             ->values();
 
         $availableYears = $balanceTransactions
-            ->pluck('booking_date')
-            ->map(static fn($date): ?int => $date ? (int) substr((string) $date, 0, 4) : null)
+            ->map(fn(Transaction $transaction): ?int => $this->resolveAnalysisDate($transaction, $selectedMode)?->year)
             ->merge($balanceDates->map(static fn(string $date): int => (int) substr($date, 0, 4)))
             ->filter()
             ->unique()
@@ -175,12 +169,21 @@ class DashboardController extends Controller
             ])
             ->values();
 
-        $transactions = (clone $listTransactionQuery)
-            ->with(['account:id,name', 'splits.category:id,name,color', 'splits.categoryRule:id,name'])
-            ->orderByDesc('booking_date')
-            ->orderByDesc('id')
-            ->get()
-            ->map(function (Transaction $transaction): array {
+        $transactions = $this->filterTransactionsForView(
+            (clone $listTransactionQuery)
+                ->with(['account:id,name', 'splits.category:id,name,color,category_type', 'splits.categoryRule:id,name'])
+                ->orderByDesc('booking_date')
+                ->orderByDesc('id')
+                ->get(),
+            $selectedView,
+            $selectedMode,
+            $selectedMonth,
+            $selectedYear,
+            $selectedDateFrom,
+            $selectedDateTo,
+        )
+            ->map(function (Transaction $transaction) use ($selectedMode): array {
+                $analysisDate = $this->resolveAnalysisDate($transaction, $selectedMode);
                 $bookingDate = $transaction->getAttribute('booking_date');
                 $valueDate = $transaction->getAttribute('value_date');
                 $primarySplit = $transaction->splits
@@ -190,6 +193,8 @@ class DashboardController extends Controller
                 return [
                     'id' => $transaction->id,
                     'booking_date' => $bookingDate ? (string) $bookingDate : null,
+                    'analysis_date' => $analysisDate?->toDateString(),
+                    'analysis_month' => $analysisDate?->format('Y-m'),
                     'value_date' => $valueDate ? (string) $valueDate : null,
                     'counterparty_name' => $transaction->counterparty_name,
                     'description' => $transaction->description,
@@ -270,6 +275,7 @@ class DashboardController extends Controller
             ],
             'filters' => [
                 'selected_view' => $selectedView,
+                'selected_mode' => $selectedMode,
                 'selected_month' => $selectedView === 'month' ? $selectedMonth : null,
                 'selected_year' => $selectedYear,
                 'selected_date_from' => $selectedView === 'range' ? $selectedDateFrom : null,
@@ -286,6 +292,104 @@ class DashboardController extends Controller
             'imports' => $imports,
             'monthly_balances' => $this->buildMonthlyBalances($accountModels, $balanceTransactions, $selectedYear),
         ]);
+    }
+
+    private function filterTransactionsForView(
+        $transactions,
+        string $selectedView,
+        string $selectedMode,
+        string $selectedMonth,
+        int $selectedYear,
+        ?string $selectedDateFrom,
+        ?string $selectedDateTo,
+    ) {
+        $from = $selectedDateFrom ? CarbonImmutable::parse($selectedDateFrom)->startOfDay() : null;
+        $to = $selectedDateTo ? CarbonImmutable::parse($selectedDateTo)->endOfDay() : null;
+
+        return $transactions
+            ->filter(function (Transaction $transaction) use ($selectedView, $selectedMode, $selectedMonth, $selectedYear, $from, $to): bool {
+                $analysisDate = $this->resolveAnalysisDate($transaction, $selectedMode);
+
+                if ($analysisDate === null) {
+                    return false;
+                }
+
+                return match ($selectedView) {
+                    'month' => $analysisDate->format('Y-m') === $selectedMonth,
+                    'year' => $analysisDate->year === $selectedYear,
+                    'range' => $from && $to ? $analysisDate->betweenIncluded($from, $to) : true,
+                    default => true,
+                };
+            })
+            ->values();
+    }
+
+    private function resolveAnalysisDate(Transaction $transaction, string $selectedMode): ?CarbonImmutable
+    {
+        $bookingDate = $transaction->getAttribute('booking_date');
+
+        if ($bookingDate === null) {
+            return null;
+        }
+
+        $date = CarbonImmutable::parse((string) $bookingDate);
+
+        if ($selectedMode !== 'budget' || ! $this->shouldShiftTransactionIntoFollowingMonth($transaction, $date)) {
+            return $date;
+        }
+
+        return $date->startOfMonth()->addMonth();
+    }
+
+    private function shouldShiftTransactionIntoFollowingMonth(Transaction $transaction, CarbonImmutable $bookingDate): bool
+    {
+        if ($bookingDate->day < 25) {
+            return false;
+        }
+
+        $transaction->loadMissing('splits.category:id,name,category_type');
+
+        $primarySplit = $transaction->splits
+            ->sortBy('sort_order')
+            ->first(fn(TransactionSplit $split): bool => $split->category !== null);
+
+        $category = $primarySplit?->category;
+        $categoryType = $category?->category_type;
+        $categoryName = $category?->name ?? $primarySplit?->name;
+
+        if ($categoryType === 'income') {
+            return true;
+        }
+
+        $budgetKeywords = ['wohnen', 'miete', 'kredit', 'darlehen', 'hypothek'];
+        $categoryNameNormalized = mb_strtolower((string) $categoryName);
+
+        foreach ($budgetKeywords as $keyword) {
+            if ($categoryNameNormalized !== '' && str_contains($categoryNameNormalized, $keyword)) {
+                return true;
+            }
+        }
+
+        $searchText = mb_strtolower(trim(implode(' ', array_filter([
+            (string) ($transaction->counterparty_name ?? ''),
+            (string) ($transaction->description ?? ''),
+        ]))));
+
+        if ($searchText === '') {
+            return false;
+        }
+
+        $textKeywords = (float) $transaction->amount >= 0
+            ? ['gehalt', 'lohn', 'salary', 'besoldung']
+            : $budgetKeywords;
+
+        foreach ($textKeywords as $keyword) {
+            if (str_contains($searchText, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function calculateCashflowAmount(Transaction $transaction): float

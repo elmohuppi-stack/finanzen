@@ -1018,6 +1018,7 @@ watch(
 
 .list-panel {
   scrollbar-gutter: stable;
+  min-height: 680px;
 }
 
 .group-list-wrap {
@@ -1362,7 +1363,10 @@ dd {
   }
 
   .list-panel {
-    max-height: min(720px, calc(100vh - 8rem));
+    height: calc(100vh - 3rem);
+    height: calc(100dvh - 3rem);
+    max-height: calc(100vh - 3rem);
+    max-height: calc(100dvh - 3rem);
     overflow-y: auto;
     overscroll-behavior: contain;
   }

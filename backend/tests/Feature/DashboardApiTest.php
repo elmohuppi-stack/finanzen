@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Account;
+use App\Models\Category;
 use App\Models\FinanceImport;
 use App\Models\Transaction;
+use App\Models\TransactionSplit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -337,6 +339,169 @@ class DashboardApiTest extends TestCase
         $response->assertJsonPath('transactions.0.counterparty_name', 'REWE');
         $response->assertJsonPath('summary.transaction_count', 1);
         $response->assertJsonPath('summary.expenses', '42.50');
+    }
+
+    public function test_dashboard_budget_mode_shifts_month_end_recurring_cashflows_into_the_following_month(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $salaryCategory = Category::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Gehalt',
+            'slug' => 'gehalt',
+            'category_type' => 'income',
+            'color' => '#16a34a',
+            'is_system' => false,
+            'sort_order' => 1,
+        ]);
+
+        $housingCategory = Category::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Wohnen',
+            'slug' => 'wohnen',
+            'category_type' => 'expense',
+            'color' => '#2563eb',
+            'is_system' => false,
+            'sort_order' => 2,
+        ]);
+
+        $salaryTransaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-30',
+            'value_date' => '2026-04-30',
+            'amount' => '2500.00',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'Arbeitgeber',
+            'description' => 'Monatsgehalt April',
+            'transaction_hash' => hash('sha256', 'budget-mode-salary'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        $housingTransaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-04-29',
+            'value_date' => '2026-04-29',
+            'amount' => '-1200.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Bank',
+            'description' => 'Wohnungskredit',
+            'transaction_hash' => hash('sha256', 'budget-mode-housing'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        TransactionSplit::query()->create([
+            'transaction_id' => $salaryTransaction->id,
+            'category_id' => $salaryCategory->id,
+            'category_rule_id' => null,
+            'name' => $salaryCategory->name,
+            'amount' => $salaryTransaction->amount,
+            'split_type' => 'category_assignment',
+            'notes' => null,
+            'sort_order' => 0,
+            'metadata' => ['source' => 'manual'],
+        ]);
+
+        TransactionSplit::query()->create([
+            'transaction_id' => $housingTransaction->id,
+            'category_id' => $housingCategory->id,
+            'category_rule_id' => null,
+            'name' => $housingCategory->name,
+            'amount' => $housingTransaction->amount,
+            'split_type' => 'category_assignment',
+            'notes' => null,
+            'sort_order' => 0,
+            'metadata' => ['source' => 'manual'],
+        ]);
+
+        $calendarResponse = $this->getJson('/api/dashboard?view=month&month=2026-05&mode=calendar');
+        $calendarResponse->assertOk();
+        $calendarResponse->assertJsonPath('summary.transaction_count', 0);
+        $calendarResponse->assertJsonPath('summary.income', '0.00');
+        $calendarResponse->assertJsonPath('summary.expenses', '0.00');
+
+        $budgetResponse = $this->getJson('/api/dashboard?view=month&month=2026-05&mode=budget');
+
+        $budgetResponse->assertOk();
+        $budgetResponse->assertJsonPath('filters.selected_mode', 'budget');
+        $budgetResponse->assertJsonPath('summary.transaction_count', 2);
+        $budgetResponse->assertJsonPath('summary.income', '2500.00');
+        $budgetResponse->assertJsonPath('summary.expenses', '1200.00');
+        $budgetResponse->assertJsonPath('summary.net', '1300.00');
+        $budgetResponse->assertJsonCount(2, 'transactions');
+        $budgetResponse->assertJsonPath('transactions.0.category_name', 'Gehalt');
+        $budgetResponse->assertJsonPath('transactions.1.category_name', 'Wohnen');
+    }
+
+    public function test_dashboard_budget_mode_keeps_january_month_end_bookings_in_february(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $housingCategory = Category::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Wohnen',
+            'slug' => 'wohnen-jan-test',
+            'category_type' => 'expense',
+            'color' => '#2563eb',
+            'is_system' => false,
+            'sort_order' => 3,
+        ]);
+
+        $housingTransaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2026-01-30',
+            'value_date' => '2026-01-30',
+            'amount' => '-980.00',
+            'currency' => 'EUR',
+            'direction' => 'debit',
+            'counterparty_name' => 'Commerzbank',
+            'description' => 'Wohnungskredit',
+            'transaction_hash' => hash('sha256', 'budget-mode-january-housing'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        TransactionSplit::query()->create([
+            'transaction_id' => $housingTransaction->id,
+            'category_id' => $housingCategory->id,
+            'category_rule_id' => null,
+            'name' => $housingCategory->name,
+            'amount' => $housingTransaction->amount,
+            'split_type' => 'category_assignment',
+            'notes' => null,
+            'sort_order' => 0,
+            'metadata' => ['source' => 'manual'],
+        ]);
+
+        $februaryResponse = $this->getJson('/api/dashboard?view=month&month=2026-02&mode=budget');
+        $februaryResponse->assertOk();
+        $februaryResponse->assertJsonPath('summary.transaction_count', 1);
+        $februaryResponse->assertJsonPath('summary.expenses', '980.00');
+        $februaryResponse->assertJsonPath('transactions.0.counterparty_name', 'Commerzbank');
+        $februaryResponse->assertJsonPath('transactions.0.analysis_month', '2026-02');
+
+        $marchResponse = $this->getJson('/api/dashboard?view=month&month=2026-03&mode=budget');
+        $marchResponse->assertOk();
+        $marchResponse->assertJsonPath('summary.transaction_count', 0);
+        $marchResponse->assertJsonPath('summary.expenses', '0.00');
     }
 
     public function test_guest_cannot_access_dashboard_data(): void

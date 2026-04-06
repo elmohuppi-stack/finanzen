@@ -4,6 +4,8 @@ import { computed, ref, watch } from 'vue'
 import { apiFetch } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
 
+type AnalysisMode = 'calendar' | 'budget'
+
 interface DashboardResponse {
   summary: {
     account_count: number
@@ -14,6 +16,7 @@ interface DashboardResponse {
   }
   filters: {
     selected_view: 'month' | 'year' | 'range' | 'all'
+    selected_mode: AnalysisMode
     selected_month: string | null
     selected_year: number | null
     selected_date_from: string | null
@@ -60,6 +63,7 @@ const dashboard = ref<DashboardResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 const viewMode = ref<'month' | 'year' | 'range' | 'all'>('month')
+const analysisMode = ref<AnalysisMode>('calendar')
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
 const selectedYear = ref(new Date().getFullYear())
 const selectedDateFrom = ref('')
@@ -145,6 +149,15 @@ function toggleCategory(key: string) {
   selectedCategory.value = selectedCategory.value === key ? null : key
 }
 
+async function setAnalysisMode(mode: AnalysisMode) {
+  if (analysisMode.value === mode) {
+    return
+  }
+
+  analysisMode.value = mode
+  await loadAnalysis()
+}
+
 async function loadAnalysis() {
   if (!authStore.token) {
     dashboard.value = null
@@ -155,7 +168,10 @@ async function loadAnalysis() {
   error.value = ''
 
   try {
-    const params = new URLSearchParams({ view: viewMode.value })
+    const params = new URLSearchParams({
+      view: viewMode.value,
+      mode: analysisMode.value,
+    })
 
     if (viewMode.value === 'month' && selectedMonth.value) {
       params.set('month', selectedMonth.value)
@@ -166,11 +182,14 @@ async function loadAnalysis() {
       params.set('date_to', selectedDateTo.value)
     }
 
-    dashboard.value = await apiFetch<DashboardResponse>(
+    const response = await apiFetch<DashboardResponse>(
       `/api/dashboard?${params.toString()}`,
       {},
       authStore.token,
     )
+
+    dashboard.value = response
+    analysisMode.value = response.filters.selected_mode ?? analysisMode.value
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Auswertung konnte nicht geladen werden.'
   } finally {
@@ -256,34 +275,67 @@ watch(
     <article class="card compact-header">
       <div class="header-toolbar">
         <div class="toolbar">
-          <button
-            class="filter-button"
-            :class="{ active: viewMode === 'month' }"
-            @click="showMonthAnalysis"
-          >
-            Monat
-          </button>
-          <button
-            class="filter-button"
-            :class="{ active: viewMode === 'year' }"
-            @click="showYearAnalysis"
-          >
-            Jahr
-          </button>
-          <button
-            class="filter-button"
-            :class="{ active: viewMode === 'range' }"
-            @click="showRangeAnalysis"
-          >
-            Bereich
-          </button>
-          <button
-            class="filter-button"
-            :class="{ active: viewMode === 'all' }"
-            @click="showAllAnalysis"
-          >
-            Alle
-          </button>
+          <div class="primary-filters">
+            <button
+              class="filter-button"
+              :class="{ active: viewMode === 'month' }"
+              @click="showMonthAnalysis"
+            >
+              Monat
+            </button>
+            <button
+              class="filter-button"
+              :class="{ active: viewMode === 'year' }"
+              @click="showYearAnalysis"
+            >
+              Jahr
+            </button>
+            <button
+              class="filter-button"
+              :class="{ active: viewMode === 'range' }"
+              @click="showRangeAnalysis"
+            >
+              Bereich
+            </button>
+            <button
+              class="filter-button"
+              :class="{ active: viewMode === 'all' }"
+              @click="showAllAnalysis"
+            >
+              Alle
+            </button>
+          </div>
+
+          <div class="mode-toggle-group">
+            <button
+              class="filter-button"
+              :class="{ active: analysisMode === 'calendar' }"
+              @click="setAnalysisMode('calendar')"
+            >
+              Kalendermonat
+            </button>
+            <div class="mode-info-wrap">
+              <button
+                class="filter-button"
+                :class="{ active: analysisMode === 'budget' }"
+                @click="setAnalysisMode('budget')"
+              >
+                Budgetmonat
+              </button>
+              <span
+                v-if="analysisMode === 'budget'"
+                class="info-badge"
+                tabindex="0"
+                aria-label="Info zum Budgetmonat"
+              >
+                i
+                <span class="info-tooltip">
+                  Budgetmonat ordnet wiederkehrende Einnahmen und Wohnen-Buchungen ab dem 25. dem
+                  Folgemonat zu.
+                </span>
+              </span>
+            </div>
+          </div>
 
           <div v-if="viewMode === 'month'" class="date-controls">
             <button class="nav-button" @click="navigateMonth(-1)">‹</button>
@@ -526,25 +578,48 @@ watch(
 .header-toolbar {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 1rem;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
 }
 
-.toolbar,
-.stats {
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem 1rem;
+  align-items: start;
+  flex: 1 1 640px;
+  min-width: 0;
+}
+
+.primary-filters {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
   align-items: center;
+  min-width: 0;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(102px, 1fr));
+  gap: 0.55rem;
+  align-items: stretch;
+  flex: 0 0 auto;
 }
 
 .stat-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  min-width: 100px;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 102px;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-strong);
 }
 
 .stat-label {
@@ -568,18 +643,29 @@ watch(
   color: var(--color-accent-strong);
 }
 
-.toolbar,
-.stats {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.date-controls {
+.date-controls,
+.mode-info-wrap,
+.primary-filters {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.mode-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+
+.date-controls {
+  grid-column: 1 / -1;
+}
+
+.mode-info-wrap {
+  position: relative;
 }
 
 .date-range-inputs {
@@ -769,6 +855,49 @@ select {
   background: linear-gradient(90deg, var(--color-accent-strong), #f97316);
 }
 
+.info-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-strong);
+  color: var(--color-accent-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: help;
+}
+
+.info-tooltip {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(18rem, 70vw);
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevated);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.info-badge:hover .info-tooltip,
+.info-badge:focus-visible .info-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 .warning,
 .negative {
   color: var(--color-danger);
@@ -779,6 +908,29 @@ select {
 }
 
 @media (max-width: 900px) {
+  .header-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar,
+  .stats {
+    width: 100%;
+  }
+
+  .mode-toggle-group {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .analysis-layout {
     grid-template-columns: 1fr;
   }

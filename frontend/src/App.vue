@@ -136,20 +136,20 @@ watch(theme, (value) => {
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 180px;
+  width: 168px;
   min-height: 100vh;
-  padding: 1.5rem 1rem;
+  padding: 1.25rem 0.85rem;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
 }
 
 .sidebar-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .sidebar-header h1 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   color: var(--color-heading);
   text-align: center;
   line-height: 1.2;
@@ -163,13 +163,13 @@ watch(theme, (value) => {
 
 .sidebar-nav a {
   display: block;
-  padding: 0.6rem 0.75rem;
+  padding: 0.55rem 0.65rem;
   border-radius: 10px;
   background: transparent;
   color: var(--color-text);
   text-decoration: none;
   font-weight: 500;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   transition: all 0.2s ease;
   text-align: center;
 }
