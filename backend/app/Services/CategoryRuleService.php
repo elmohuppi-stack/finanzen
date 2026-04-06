@@ -7,6 +7,7 @@ use App\Models\CategoryRule;
 use App\Models\Transaction;
 use App\Models\TransactionSplit;
 use App\Models\User;
+use Database\Seeders\DefaultCategorySeeder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -478,18 +479,7 @@ class CategoryRuleService
 
     private function ensureDefaultRuleCategoriesExist(): void
     {
-        $defaults = [
-            ['name' => 'Gehalt', 'category_type' => 'income', 'color' => '#16a34a', 'sort_order' => 1],
-            ['name' => 'Lebensmittel', 'category_type' => 'expense', 'color' => '#059669', 'sort_order' => 4],
-            ['name' => 'Drogerie', 'category_type' => 'expense', 'color' => '#ec4899', 'sort_order' => 5],
-            ['name' => 'Mobilität', 'category_type' => 'expense', 'color' => '#0ea5e9', 'sort_order' => 6],
-            ['name' => 'Wohnen', 'category_type' => 'expense', 'color' => '#f59e0b', 'sort_order' => 7],
-            ['name' => 'Onlinekauf', 'category_type' => 'expense', 'color' => '#6366f1', 'sort_order' => 8],
-            ['name' => 'Abos', 'category_type' => 'expense', 'color' => '#7c3aed', 'sort_order' => 9],
-            ['name' => 'Transfer', 'category_type' => 'transfer', 'color' => '#64748b', 'sort_order' => 20],
-        ];
-
-        foreach ($defaults as $default) {
+        foreach (DefaultCategorySeeder::definitions() as $index => $default) {
             Category::query()->updateOrCreate(
                 [
                     'user_id' => null,
@@ -500,7 +490,7 @@ class CategoryRuleService
                     'category_type' => $default['category_type'],
                     'color' => $default['color'],
                     'is_system' => true,
-                    'sort_order' => $default['sort_order'],
+                    'sort_order' => $index + 1,
                 ],
             );
         }

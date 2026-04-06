@@ -186,6 +186,32 @@ class CategoryRuleApiTest extends TestCase
         $secondImport->assertJsonPath('summary.imported_rules', 0);
         $secondImport->assertJsonPath('summary.updated_rules', 26);
 
+        $this->assertDatabaseHas('categories', [
+            'user_id' => null,
+            'name' => 'Haushalt und Kleidung',
+            'is_system' => true,
+        ]);
+        $this->assertDatabaseMissing('categories', [
+            'user_id' => null,
+            'name' => 'Fachliteratur',
+            'is_system' => true,
+        ]);
+        $this->assertDatabaseMissing('categories', [
+            'user_id' => null,
+            'name' => 'Büromaterial',
+            'is_system' => true,
+        ]);
+        $this->assertDatabaseMissing('categories', [
+            'user_id' => null,
+            'name' => 'Weiterbildung',
+            'is_system' => true,
+        ]);
+        $this->assertDatabaseMissing('categories', [
+            'user_id' => null,
+            'name' => 'Steuern / Gebühren beruflich',
+            'is_system' => true,
+        ]);
+
         $this->assertDatabaseHas('category_rules', [
             'user_id' => $user->id,
             'pattern' => 'lohn',
