@@ -14,6 +14,7 @@ Key business goals:
 - link PayPal technical counter-bookings into one real purchase view
 - support transaction splits for mixed payments, e.g. supermarket + cash withdrawal
 - provide clean dashboard, categories, and charts
+- keep the analysis tab optimized for spending review with compact rows and modal-based recategorization / rule creation
 
 ## Working rules for agents
 
@@ -43,6 +44,7 @@ Key business goals:
 6. handle cash withdrawals and cashback in transactions ✅
 7. refine UI for better usability (compact category cards, improved counterparty display) ✅
 8. add comprehensive tests and ensure builds pass ✅
+9. improve analysis tab with compact transaction edit modal for recategorization and rule creation ✅
 
 ## Local workflow
 

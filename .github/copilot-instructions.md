@@ -9,6 +9,7 @@ This project is a finance application with strong emphasis on import correctness
 - link Visa and PayPal transactions before evaluating spending
 - preserve raw data and derive analytical views separately
 - prioritize readable, calm UI with good light/dark support
+- treat the analysis tab as a critical workflow; keep transaction rows compact and move recategorization / rule creation into focused dialogs
 
 ## Coding preferences
 
@@ -17,6 +18,7 @@ This project is a finance application with strong emphasis on import correctness
 - test frontend changes with `npm run build`
 - do not add mock-only production behavior
 - keep architecture simple and evolvable for later DKB / PSD2 integration
+- for dense finance views, prefer compact lists with modal editing over large inline forms
 
 ## Sensitive data
 

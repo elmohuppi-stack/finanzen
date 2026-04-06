@@ -12,6 +12,7 @@ Besonders wichtig:
 - **PayPal-Buchungen** und technische Gegenbewegungen werden logisch verknüpft.
 - **Bargeldabhebungen** können aufgesplittet und später gegen manuelle Barausgaben verrechnet werden.
 - Kategorien kommen aus einem Standardkatalog, sind aber pro Benutzer erweiterbar.
+- Im **Auswertung**-Tab lassen sich Buchungen direkt in andere Kategorien verschieben oder per Regel automatisieren – kompakt über ein Bearbeitungs-Modal.
 
 ---
 
@@ -37,6 +38,7 @@ Bereits umgesetzt:
 - Korrektur der Gegenparteien-Anzeige für eingehende Zahlungen
 - Dashboard mit KPIs, Tabellen und Charts
 - Split-Funktion für gemischte Zahlungen
+- Kompakte Bearbeitung direkt im `Auswertung`-Tab: Transaktionen umhängen und Regeln per Modal anlegen
 - Umfassende Tests für Backend und Frontend
 
 ---
@@ -213,17 +215,16 @@ Zielumgebung:
 
 ### Als Nächstes
 
-1. echte Persistierung von Imports
-2. Normalisierung von Giro-/Visa-/PayPal-Buchungen
-3. Visa-/PayPal-Verknüpfung
-4. Split-Funktion für Buchungen
-5. Dashboard mit KPIs, Tabellen und Charts
+1. Budgetplanung und Sparziele auf Basis der vorhandenen Auswertungen ergänzen
+2. Regelvorschläge und Bulk-Kategorisierung weiter verfeinern
+3. Vermögenswerte wie Aktien / Gold ergänzen
+4. DKB-/PSD2-Integration vorbereiten
 
 ### Später
 
-- Bargeld-Wallet mit manueller Ausgabenpflege
-- Vermögenswerte wie Aktien / Gold
-- DKB-/PSD2-Integration
+- Mobile-Optimierung
+- OCR / Belegscan
+- weitergehende Automatisierungen für wiederkehrende Zahlungen
 
 ---
 

@@ -28,6 +28,7 @@ Der erste produktive Fokus liegt auf:
 - Standard-Kategorienregeln für häufige Ausgaben (z.B. Amazon, Prime, Netflix) ✅
 - Behandlung von Bargeldabhebungen und Cashback ✅
 - Kompakte UI-Elemente und verbesserte Anzeige von Gegenparteien ✅
+- Auswertung mit direkter Umbuchung und Regelanlage pro Transaktion über ein kompaktes Modal ✅
 
 ### Nicht Teil von V1
 
@@ -51,6 +52,7 @@ Der erste produktive Fokus liegt auf:
 - `Vue 3`
 - Dashboard, Listen, Detailansichten
 - Zeitfilter: `aktueller Zeitraum`, `Monat`, `Quartal`, `Jahr`, freier Zeitraum
+- Auswertung mit Kategorienbalken und kompaktem Transaktions-Edit-Modal
 
 ### Deployment
 
@@ -192,3 +194,4 @@ Eine gemeinsame Umsatzliste mit Badges wie:
 6. PayPal-Zahlung + Gegenbuchung korrekt verknüpfen
 7. Splits korrekt kategorisieren und auswerten
 8. lokal testen, danach Deployment auf Hetzner prüfen
+9. Kategorieänderung und Regelanlage direkt aus der Auswertung prüfen

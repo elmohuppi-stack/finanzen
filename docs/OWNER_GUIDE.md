@@ -24,6 +24,7 @@ Sie fasst zusammen, was bereits steht, wie du lokal testen kannst und welche nä
 - Dashboard mit KPIs, Tabellen und Charts
 - Split-Funktion für gemischte Zahlungen
 - Kompakte UI und verbesserte Gegenparteien-Anzeige
+- Bearbeitungs-Modal im `Auswertung`-Tab zum Umhängen von Kategorien und Erstellen neuer Regeln
 - Umfassende Tests für Backend und Frontend
 
 ## Lokal arbeiten
@@ -51,6 +52,7 @@ make check
 
 - `http://127.0.0.1:5173/login`
 - `http://127.0.0.1:5173/imports/preview`
+- `http://127.0.0.1:5173/analysis` → Kategorie auswählen, `✎` klicken, Kategorie ändern oder Regel anlegen
 
 Seed-Login:
 
@@ -68,11 +70,11 @@ Seed-Login:
 
 ## Nächste sinnvolle Schritte
 
-1. DKB-API/PSD2-Integration vorbereiten
-2. Mobile-App entwickeln
-3. OCR / Belegscan hinzufügen
-4. KI-Kategorisierung implementieren
-5. Budgetplanung einführen
+1. Budgetplanung und Sparziele auf Basis der vorhandenen Auswertungen ergänzen
+2. Regelvorschläge und Bulk-Kategorisierung weiter verbessern
+3. Vermögenswerte wie Aktien / Gold ergänzen
+4. DKB-API/PSD2-Integration vorbereiten
+5. Mobile-Optimierung für die wichtigsten Flows verbessern
 
 ## Vor GitHub-Push prüfen
 
