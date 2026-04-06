@@ -28,6 +28,16 @@ Bereits umgesetzt:
   - `PayPal`
 - erste Finanzmodelle für Konten, Umsätze, Splits und Verknüpfungen
 - modernes Hell-/Dunkel-Theme im Frontend
+- Persistierung von CSV-Imports in der Datenbank
+- Normalisierung von Giro-, Visa- und PayPal-Zeilen in gemeinsame Transaktionsdatensätze
+- Verknüpfungslogik für Visa- und PayPal-Transaktionen
+- Standard-Kategorienregeln für häufige Ausgaben (z.B. Amazon, Prime, Netflix)
+- Behandlung von Bargeldabhebungen und Cashback
+- Kompakte UI für Kategorie-Karten
+- Korrektur der Gegenparteien-Anzeige für eingehende Zahlungen
+- Dashboard mit KPIs, Tabellen und Charts
+- Split-Funktion für gemischte Zahlungen
+- Umfassende Tests für Backend und Frontend
 
 ---
 

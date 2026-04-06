@@ -35,10 +35,14 @@ Key business goals:
 
 ## Immediate priorities
 
-1. persist CSV imports in the database
-2. normalize Giro / Visa / PayPal rows into shared transaction records
-3. implement link logic for Visa and PayPal
-4. add split UI and dashboard tables/charts
+1. persist CSV imports in the database ✅
+2. normalize Giro / Visa / PayPal rows into shared transaction records ✅
+3. implement link logic for Visa and PayPal ✅
+4. add split UI and dashboard tables/charts ✅
+5. add default category rules for common expenses (Amazon, Prime, Netflix, cash withdrawals) ✅
+6. handle cash withdrawals and cashback in transactions ✅
+7. refine UI for better usability (compact category cards, improved counterparty display) ✅
+8. add comprehensive tests and ensure builds pass ✅
 
 ## Local workflow
 

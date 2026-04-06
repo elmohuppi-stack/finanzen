@@ -16,15 +16,18 @@ Der erste produktive Fokus liegt auf:
 
 ### Enthalten in Version 1
 
-- mehrbenutzerfähige Anwendung
-- Registrierung, Login, Passwort-Reset
-- zunächst ein primäres Girokonto pro Benutzer
-- CSV-Import für `Girokonto`, `Visa` und `PayPal`
-- Dubletten-sicherer Import bei mehrfach importierten oder überlappenden Dateien
-- Kategorien aus Standardkatalog, pro Benutzer erweiterbar
-- Dashboard mit KPI-Karten, Timeline, Charts und Basis-Auswertungen
-- manuelle Split-Funktion für Buchungen
-- Bargeld als eigene auswertbare Finanzquelle
+- mehrbenutzerfähige Anwendung ✅
+- Registrierung, Login, Passwort-Reset ✅
+- zunächst ein primäres Girokonto pro Benutzer ✅
+- CSV-Import für `Girokonto`, `Visa` und `PayPal` ✅
+- Dubletten-sicherer Import bei mehrfach importierten oder überlappenden Dateien ✅
+- Kategorien aus Standardkatalog, pro Benutzer erweiterbar ✅
+- Dashboard mit KPI-Karten, Timeline, Charts und Basis-Auswertungen ✅
+- manuelle Split-Funktion für Buchungen ✅
+- Bargeld als eigene auswertbare Finanzquelle ✅
+- Standard-Kategorienregeln für häufige Ausgaben (z.B. Amazon, Prime, Netflix) ✅
+- Behandlung von Bargeldabhebungen und Cashback ✅
+- Kompakte UI-Elemente und verbesserte Anzeige von Gegenparteien ✅
 
 ### Nicht Teil von V1
 
