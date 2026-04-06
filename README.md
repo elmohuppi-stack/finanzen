@@ -76,8 +76,9 @@ Wichtige Dateien:
 
 - `docs/plan.md` – fachlicher Projektplan
 - `docs/OWNER_GUIDE.md` – Projektkontext und nächste Schritte für dich
+- `docs/deployment.md` – konkreter Hetzner-Deploy- und Update-Ablauf fuer diese App
 - `AGENTS.md` – Arbeitskontext und Regeln für Copilot/Agenten
-- `docs/hetzner-multi-app-template.md` – Deploy-Standard für Produktion
+- `docs/hetzner-multi-app-template.md` – allgemeiner Deploy-Standard für Produktion
 
 ---
 
@@ -190,6 +191,7 @@ Beispiele:
 ## Deployment
 
 Das Produktions-Deployment folgt dem Standard in `docs/hetzner-multi-app-template.md`.
+Der **konkrete, funktionierende Ablauf fuer `Finanzen`** ist in `docs/deployment.md` dokumentiert.
 
 Vorgesehene Domains:
 

@@ -76,6 +76,20 @@ Seed-Login:
 4. DKB-API/PSD2-Integration vorbereiten
 5. Mobile-Optimierung für die wichtigsten Flows verbessern
 
+## Deployment und spaetere Updates
+
+Der produktive Rollout auf Hetzner ist jetzt dokumentiert in:
+
+- `docs/deployment.md` – exakte Copy/Paste-Befehle fuer Updates, Verifikation und Rollback
+- `docs/hetzner-multi-app-template.md` – allgemeiner Multi-App-Standard fuer kuenftige Projekte
+
+Wenn du spaeter neue Versionen ausrollen willst, nutze am besten den dort beschriebenen Ablauf aus:
+
+1. lokal bauen und Tests laufen lassen
+2. per `rsync` nach `/var/www/finanzen` synchronisieren
+3. `docker compose --env-file .env -f docker-compose.prod.yml up -d --build`
+4. Frontend + API per `curl` verifizieren
+
 ## Vor GitHub-Push prüfen
 
 ```bash

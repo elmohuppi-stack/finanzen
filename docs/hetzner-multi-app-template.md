@@ -200,7 +200,24 @@ Bitte richte Docker-Compose, Produktions-Env, Nginx und die Verifikationsschritt
 
 ---
 
-## 8. Empfehlung fuer dein Domain-Schema
+## 8. Aktuelle Werte fuer `Finanzen`
+
+Fuer dieses Repo wurden aktuell diese Werte verwendet:
+
+| Variable          | Wert                        |
+| ----------------- | --------------------------- |
+| `APP_SLUG`        | `finanzen`                  |
+| `FRONTEND_DOMAIN` | `finanzen.elmarhepp.de`     |
+| `API_DOMAIN`      | `finanzen-api.elmarhepp.de` |
+| `WEB_PORT`        | `3021`                      |
+| `API_PORT`        | `3022`                      |
+| `DEPLOY_PATH`     | `/var/www/finanzen`         |
+
+Der konkrete Ablauf fuer Updates und Rollbacks steht in `docs/deployment.md`.
+
+---
+
+## 9. Empfehlung fuer dein Domain-Schema
 
 Fuer bis zu 20 Apps ist dieses Muster sauber und skalierbar:
 
