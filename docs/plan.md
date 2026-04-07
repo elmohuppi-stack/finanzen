@@ -11,6 +11,7 @@ Der erste produktive Fokus liegt auf:
 - einer konsolidierten Umsatzansicht
 - Kategorien, Charts und Auswertungen
 - sauberer Integration von `Giro`, `Visa`, `PayPal` und `Bargeld`
+- einem öffentlichen Basisauftritt mit `Impressum`, `Datenschutz` und sauber konfigurierbaren Anbieterangaben
 
 ## MVP-Umfang
 
@@ -29,6 +30,8 @@ Der erste produktive Fokus liegt auf:
 - Behandlung von Bargeldabhebungen und Cashback ✅
 - Kompakte UI-Elemente und verbesserte Anzeige von Gegenparteien ✅
 - Auswertung mit direkter Umbuchung und Regelanlage pro Transaktion über ein kompaktes Modal ✅
+- Basis-Rechtstexte im Frontend (`Impressum`, `Datenschutz`, Datenschutzhinweis) ✅
+- rechtliche Kontaktangaben über `VITE_LEGAL_*`-Umgebungsvariablen statt hart im Code ✅
 
 ### Nicht Teil von V1
 
@@ -53,6 +56,7 @@ Der erste produktive Fokus liegt auf:
 - Dashboard, Listen, Detailansichten
 - Zeitfilter: `aktueller Zeitraum`, `Monat`, `Quartal`, `Jahr`, freier Zeitraum
 - Auswertung mit Kategorienbalken und kompaktem Transaktions-Edit-Modal
+- öffentliche Rechtstext-Seiten und Datenschutzhinweis, rechtliche Angaben per `VITE_LEGAL_*` konfigurierbar
 
 ### Deployment
 
@@ -165,6 +169,7 @@ Eine gemeinsame Umsatzliste mit Badges wie:
 - Wohnen
 - Lebensmittel
 - Drogerie
+- Haushalt und Kleidung
 - Mobilität
 - Gesundheit
 - Freizeit
@@ -177,12 +182,14 @@ Eine gemeinsame Umsatzliste mit Badges wie:
 ### Beruflich / freiberuflich
 
 - Software / SaaS
-- Fachliteratur
-- Büromaterial
-- Weiterbildung
 - Reisekosten beruflich
 - Telefon / Internet beruflich
-- Steuern / Gebühren beruflich
+
+### Einnahmen / Sonderfälle
+
+- Gehalt
+- Nebeneinkünfte
+- Transfer
 
 ## Verifikation
 
@@ -195,3 +202,4 @@ Eine gemeinsame Umsatzliste mit Badges wie:
 7. Splits korrekt kategorisieren und auswerten
 8. lokal testen, danach Deployment auf Hetzner prüfen
 9. Kategorieänderung und Regelanlage direkt aus der Auswertung prüfen
+10. `Impressum` und `Datenschutz` mit korrekten Env-Werten lokal und vor Livegang prüfen

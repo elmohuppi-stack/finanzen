@@ -91,11 +91,22 @@
     <article class="card">
       <h3>Projektstatus</h3>
       <ul>
-        <li>✅ Authentifizierung mit Registrierung und Login</li>
-        <li>✅ CSV-Import für DKB Giro, DKB Visa und PayPal</li>
-        <li>✅ Import-Verlauf und duplikatsicheres Einlesen</li>
-        <li>✅ Dashboard, Buchungsliste und erste Kategorisierung</li>
-        <li>🔜 Nächste Schritte: Split-Buchungen, bessere Charts, Visa-/PayPal-Verknüpfungen</li>
+        <li>✅ Authentifizierung mit Registrierung, Login und geschütztem Nutzerbereich</li>
+        <li>✅ CSV-Import für DKB Giro, DKB Visa und PayPal mit duplikatsicherem Einlesen</li>
+        <li>
+          ✅ Kategorien, Regeln, manuelle Korrekturen sowie Standardregeln für häufige Ausgaben
+        </li>
+        <li>
+          ✅ Dashboard, Buchungsliste und Auswertung inklusive Split-Buchungen und Transfer-Logik
+        </li>
+        <li>✅ Visa-/PayPal-Verknüpfungen und Budgetmonat-Logik für eine bessere Einordnung</li>
+        <li>
+          ✅ Performance-Optimierungen für die Auswertung sowie lokale Rechtstexte im Frontend
+        </li>
+        <li>
+          🔜 Nächste Schritte: Rechtstexte final prüfen, Livegang wieder aktivieren und weitere
+          Automatisierung ausbauen
+        </li>
       </ul>
     </article>
   </section>

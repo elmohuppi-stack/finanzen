@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 
+import PrivacyConsentBanner from '@/components/PrivacyConsentBanner.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -102,12 +103,20 @@ watch(theme, (value) => {
             <button class="user-menu__logout" type="button" @click="requestLogout">Logout</button>
           </div>
         </div>
+
+        <div class="legal-links">
+          <p class="legal-links__label">Rechtliches</p>
+          <RouterLink to="/impressum">Impressum</RouterLink>
+          <RouterLink to="/datenschutz">Datenschutz</RouterLink>
+        </div>
       </div>
     </aside>
 
     <main class="content">
       <RouterView />
     </main>
+
+    <PrivacyConsentBanner />
 
     <div v-if="showLogoutConfirm" class="modal-overlay" @click.self="closeLogoutConfirm">
       <div class="modal-card">
@@ -265,6 +274,37 @@ watch(theme, (value) => {
 .auth-link:hover {
   background: var(--color-accent-strong);
   color: #fff;
+}
+
+.legal-links {
+  display: grid;
+  gap: 0.3rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.legal-links__label {
+  margin: 0;
+  text-align: center;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.legal-links a {
+  display: block;
+  text-align: center;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 0.82rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 8px;
+}
+
+.legal-links a:hover {
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
 }
 
 .content {

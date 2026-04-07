@@ -443,6 +443,68 @@ class DashboardApiTest extends TestCase
         $budgetResponse->assertJsonPath('transactions.1.category_name', 'Wohnen');
     }
 
+    public function test_dashboard_budget_mode_shifts_pre_christmas_salary_bookings_into_january(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $account = Account::query()->create([
+            'user_id' => $user->id,
+            'name' => 'DKB Girokonto',
+            'account_type' => 'checking_account',
+            'institution' => 'DKB',
+            'currency' => 'EUR',
+        ]);
+
+        $salaryCategory = Category::query()->create([
+            'user_id' => $user->id,
+            'name' => 'Gehalt',
+            'slug' => 'gehalt-dez-test',
+            'category_type' => 'income',
+            'color' => '#16a34a',
+            'is_system' => false,
+            'sort_order' => 3,
+        ]);
+
+        $salaryTransaction = Transaction::query()->create([
+            'account_id' => $account->id,
+            'booking_date' => '2025-12-23',
+            'value_date' => '2025-12-23',
+            'amount' => '2800.00',
+            'currency' => 'EUR',
+            'direction' => 'credit',
+            'counterparty_name' => 'Jorg Franzke',
+            'description' => 'Dezember Gehalt',
+            'transaction_hash' => hash('sha256', 'budget-mode-pre-christmas-salary'),
+            'source_system' => 'dkb_giro',
+        ]);
+
+        TransactionSplit::query()->create([
+            'transaction_id' => $salaryTransaction->id,
+            'category_id' => $salaryCategory->id,
+            'category_rule_id' => null,
+            'name' => $salaryCategory->name,
+            'amount' => $salaryTransaction->amount,
+            'split_type' => 'category_assignment',
+            'notes' => null,
+            'sort_order' => 0,
+            'metadata' => ['source' => 'manual'],
+        ]);
+
+        $decemberBudgetResponse = $this->getJson('/api/dashboard?view=month&month=2025-12&mode=budget');
+        $decemberBudgetResponse->assertOk();
+        $decemberBudgetResponse->assertJsonPath('summary.transaction_count', 0);
+        $decemberBudgetResponse->assertJsonPath('summary.income', '0.00');
+
+        $januaryBudgetResponse = $this->getJson('/api/dashboard?view=month&month=2026-01&mode=budget');
+        $januaryBudgetResponse->assertOk();
+        $januaryBudgetResponse->assertJsonPath('summary.transaction_count', 1);
+        $januaryBudgetResponse->assertJsonPath('summary.income', '2800.00');
+        $januaryBudgetResponse->assertJsonPath('transactions.0.counterparty_name', 'Jorg Franzke');
+        $januaryBudgetResponse->assertJsonPath('transactions.0.category_name', 'Gehalt');
+        $januaryBudgetResponse->assertJsonPath('transactions.0.analysis_month', '2026-01');
+    }
+
     public function test_dashboard_budget_mode_keeps_january_month_end_bookings_in_february(): void
     {
         $user = User::factory()->create();

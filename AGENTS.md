@@ -15,6 +15,7 @@ Key business goals:
 - support transaction splits for mixed payments, e.g. supermarket + cash withdrawal
 - provide clean dashboard, categories, and charts
 - keep the analysis tab optimized for spending review with compact rows and modal-based recategorization / rule creation
+- keep the public legal pages (`Impressum`, `Datenschutz`) and env-based legal metadata consistent before a public relaunch
 
 ## Working rules for agents
 
@@ -30,7 +31,7 @@ Key business goals:
 ## Current architecture
 
 - `backend/` → Laravel API, auth, imports, domain models
-- `frontend/` → Vue UI, auth state, import preview, dashboard shell
+- `frontend/` → Vue UI, auth state, import preview, dashboard shell, legal pages and privacy notice banner
 - `docs/plan.md` → feature and architecture plan
 - `docs/OWNER_GUIDE.md` → handover and next steps for the project owner
 
@@ -45,6 +46,9 @@ Key business goals:
 7. refine UI for better usability (compact category cards, improved counterparty display) ✅
 8. add comprehensive tests and ensure builds pass ✅
 9. improve analysis tab with compact transaction edit modal for recategorization and rule creation ✅
+10. speed up analysis loading on live and keep month switching responsive ✅
+11. add legal pages and env-driven legal contact data before public relaunch ✅
+12. finalize legal wording and reactivate the public deployment 🔄
 
 ## Local workflow
 

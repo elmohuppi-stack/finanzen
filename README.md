@@ -39,6 +39,9 @@ Bereits umgesetzt:
 - Dashboard mit KPIs, Tabellen und Charts
 - Split-Funktion für gemischte Zahlungen
 - Kompakte Bearbeitung direkt im `Auswertung`-Tab: Transaktionen umhängen und Regeln per Modal anlegen
+- Performance-Optimierungen für schnellen Monatswechsel und Analyseabrufe
+- Basis-Rechtstexte im Frontend: `Impressum`, `Datenschutz` und Datenschutzhinweis-Banner
+- Rechtliche Kontaktangaben im Frontend über `VITE_LEGAL_*`-Umgebungsvariablen statt fest im Code
 - Umfassende Tests für Backend und Frontend
 
 ---
@@ -133,6 +136,22 @@ make test
 make check
 ```
 
+### Frontend-Rechtsangaben per Umgebungsvariable
+
+Die öffentlichen Seiten `Impressum` und `Datenschutz` lesen ihre Kontaktdaten aus Vite-Env-Werten statt aus festem Code.
+
+Wichtige Variablen:
+
+- `VITE_LEGAL_NAME`
+- `VITE_LEGAL_EMAIL`
+- `VITE_LEGAL_ADDRESS_LINE_1`
+- `VITE_LEGAL_ADDRESS_LINE_2`
+- `VITE_LEGAL_COUNTRY`
+- `VITE_LEGAL_CONTENT_RESPONSIBLE`
+
+Für lokal empfiehlt sich `frontend/.env.local` als nicht versionierte Datei. Als Vorlage dient `frontend/.env.example`.
+Für Produktion sollten die Werte in einer nicht eingecheckten Build-Umgebung oder z. B. in `frontend/.env.production.local` gesetzt werden.
+
 ---
 
 ## Make-Targets
@@ -217,10 +236,11 @@ Zielumgebung:
 
 ### Als Nächstes
 
-1. Budgetplanung und Sparziele auf Basis der vorhandenen Auswertungen ergänzen
-2. Regelvorschläge und Bulk-Kategorisierung weiter verfeinern
-3. Vermögenswerte wie Aktien / Gold ergänzen
-4. DKB-/PSD2-Integration vorbereiten
+1. Rechtstexte final prüfen und den öffentlichen Livegang sauber wieder aktivieren
+2. Budgetplanung und Sparziele auf Basis der vorhandenen Auswertungen ergänzen
+3. Regelvorschläge und Bulk-Kategorisierung weiter verfeinern
+4. Vermögenswerte wie Aktien / Gold ergänzen
+5. DKB-/PSD2-Integration vorbereiten
 
 ### Später
 

@@ -37,8 +37,22 @@ const router = createRouter({
       component: () => import('../views/HelpView.vue'),
     },
     {
+      path: '/impressum',
+      name: 'imprint',
+      component: () => import('../views/ImprintView.vue'),
+    },
+    {
+      path: '/datenschutz',
+      name: 'privacy',
+      component: () => import('../views/PrivacyView.vue'),
+    },
+    {
       path: '/about',
       redirect: '/help',
+    },
+    {
+      path: '/privacy',
+      redirect: '/datenschutz',
     },
     {
       path: '/login',

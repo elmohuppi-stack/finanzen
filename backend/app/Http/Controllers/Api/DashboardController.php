@@ -388,16 +388,16 @@ class DashboardController extends Controller
 
         return match ($selectedView) {
             'month' => $query->whereBetween('booking_date', [
-                CarbonImmutable::parse($selectedMonth . '-01')->startOfMonth()->subDays(7)->toDateString(),
+                CarbonImmutable::parse($selectedMonth . '-01')->startOfMonth()->subDays(14)->toDateString(),
                 CarbonImmutable::parse($selectedMonth . '-01')->endOfMonth()->toDateString(),
             ]),
             'year' => $query->whereBetween('booking_date', [
-                CarbonImmutable::create($selectedYear - 1, 12, 25)->toDateString(),
+                CarbonImmutable::create($selectedYear - 1, 12, 18)->toDateString(),
                 CarbonImmutable::create($selectedYear, 12, 31)->toDateString(),
             ]),
             'range' => $selectedDateFrom && $selectedDateTo
                 ? $query->whereBetween('booking_date', [
-                    CarbonImmutable::parse($selectedDateFrom)->subDays(7)->toDateString(),
+                    CarbonImmutable::parse($selectedDateFrom)->subDays(14)->toDateString(),
                     CarbonImmutable::parse($selectedDateTo)->toDateString(),
                 ])
                 : $query,
@@ -454,7 +454,12 @@ class DashboardController extends Controller
 
     private function shouldShiftTransactionIntoFollowingMonth(Transaction $transaction, CarbonImmutable $bookingDate): bool
     {
-        if ($bookingDate->day < 25) {
+        $needsEarlyDecemberSalaryCheck = $bookingDate->month === 12
+            && $bookingDate->day >= 20
+            && $bookingDate->day < 25
+            && (float) $transaction->amount > 0;
+
+        if ($bookingDate->day < 25 && ! $needsEarlyDecemberSalaryCheck) {
             return false;
         }
 
@@ -466,25 +471,27 @@ class DashboardController extends Controller
 
         $category = $primarySplit?->category;
         $categoryType = $category?->category_type;
-        $categoryName = $category?->name ?? $primarySplit?->name;
+        $categoryNameNormalized = mb_strtolower((string) ($category?->name ?? $primarySplit?->name));
+        $budgetKeywords = ['wohnen', 'miete', 'kredit', 'darlehen', 'hypothek'];
+        $searchText = $this->buildBudgetSearchText($transaction);
+
+        if ($needsEarlyDecemberSalaryCheck && $this->isSalaryLikeBudgetTransaction($categoryNameNormalized, $searchText)) {
+            return true;
+        }
+
+        if ($bookingDate->day < 25) {
+            return false;
+        }
 
         if ($categoryType === 'income') {
             return true;
         }
-
-        $budgetKeywords = ['wohnen', 'miete', 'kredit', 'darlehen', 'hypothek'];
-        $categoryNameNormalized = mb_strtolower((string) $categoryName);
 
         foreach ($budgetKeywords as $keyword) {
             if ($categoryNameNormalized !== '' && str_contains($categoryNameNormalized, $keyword)) {
                 return true;
             }
         }
-
-        $searchText = mb_strtolower(trim(implode(' ', array_filter([
-            (string) ($transaction->counterparty_name ?? ''),
-            (string) ($transaction->description ?? ''),
-        ]))));
 
         if ($searchText === '') {
             return false;
@@ -496,6 +503,28 @@ class DashboardController extends Controller
 
         foreach ($textKeywords as $keyword) {
             if (str_contains($searchText, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function buildBudgetSearchText(Transaction $transaction): string
+    {
+        return mb_strtolower(trim(implode(' ', array_filter([
+            (string) ($transaction->counterparty_name ?? ''),
+            (string) ($transaction->description ?? ''),
+        ]))));
+    }
+
+    private function isSalaryLikeBudgetTransaction(string $categoryNameNormalized, string $searchText): bool
+    {
+        foreach (['gehalt', 'lohn', 'salary', 'besoldung'] as $keyword) {
+            if (
+                ($categoryNameNormalized !== '' && str_contains($categoryNameNormalized, $keyword))
+                || ($searchText !== '' && str_contains($searchText, $keyword))
+            ) {
                 return true;
             }
         }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 
@@ -150,6 +150,13 @@ async function submit() {
     </form>
 
     <p v-if="authStore.error" class="error">{{ authStore.error }}</p>
+
+    <p class="legal-note">
+      Rechtliche Hinweise:
+      <RouterLink to="/impressum">Impressum</RouterLink>
+      ·
+      <RouterLink to="/datenschutz">Datenschutz</RouterLink>
+    </p>
   </section>
 </template>
 
@@ -256,5 +263,16 @@ button[type='submit']:disabled {
 .error {
   color: var(--color-danger);
   font-weight: 600;
+}
+
+.legal-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.legal-note a {
+  color: var(--color-accent-strong);
+  text-decoration: none;
 }
 </style>

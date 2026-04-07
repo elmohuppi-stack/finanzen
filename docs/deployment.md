@@ -21,7 +21,8 @@ Diese Datei beschreibt den **konkreten, aktuell funktionierenden Produktions-Dep
 - `frontend/Dockerfile` – Vue-Container
 - `.env.example` – Root-Werte fuer Domain + Ports
 - `backend/.env.production.example` – Vorlage fuer das Backend in Produktion
-- `frontend/.env.production` – Produktions-API-URL fuer das Frontend
+- `frontend/.env.example` – Vorlage fuer API-URL und rechtliche Frontend-Angaben
+- `frontend/.env.production` bzw. besser `frontend/.env.production.local` – Produktionswerte fuer API und `VITE_LEGAL_*`
 
 ---
 
@@ -63,6 +64,22 @@ Das ist der empfohlene Ablauf fuer **spaetere Updates**.
 ```bash
 cd /Users/elmarhepp/workspace/finanzen/frontend && npm run build
 cd /Users/elmarhepp/workspace/finanzen/backend && php artisan test
+```
+
+### 1b. Rechtliche Frontend-Werte fuer Produktion setzen
+
+Vor einem oeffentlichen Relaunch sollten die Anbieterangaben fuer `Impressum` und `Datenschutz` in einer nicht versionierten Produktionsdatei oder direkt in der Build-Umgebung gesetzt werden, z. B.:
+
+```bash
+cat >/var/www/finanzen/frontend/.env.production.local <<'EOF'
+VITE_API_BASE_URL=https://finanzen-api.elmarhepp.de
+VITE_LEGAL_NAME="<name>"
+VITE_LEGAL_EMAIL="<email>"
+VITE_LEGAL_ADDRESS_LINE_1="<strasse hausnummer>"
+VITE_LEGAL_ADDRESS_LINE_2="<plz ort>"
+VITE_LEGAL_COUNTRY="Deutschland"
+VITE_LEGAL_CONTENT_RESPONSIBLE="<name>"
+EOF
 ```
 
 ### 2. Aenderungen committen
@@ -110,6 +127,8 @@ ssh elmarhepp '
 '
 
 curl -I https://finanzen.elmarhepp.de/
+curl -I https://finanzen.elmarhepp.de/impressum
+curl -I https://finanzen.elmarhepp.de/datenschutz
 curl -i https://finanzen-api.elmarhepp.de/api/health
 ```
 
