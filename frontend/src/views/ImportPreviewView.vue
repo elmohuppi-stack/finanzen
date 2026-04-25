@@ -77,8 +77,10 @@ const importResult = ref<ImportRunResponse['import'] | null>(null)
 const importHistory = ref<ImportHistoryResponse['imports']>([])
 const loading = ref(false)
 const importLoading = ref(false)
+const categorizeLoading = ref(false)
 const historyLoading = ref(false)
 const error = ref('')
+
 
 const detectedLabel = computed(() => {
   switch (preview.value?.detected_type) {
@@ -242,6 +244,23 @@ async function startImport() {
     preview.value = null
     selectedFile.value = null
     fileInputKey.value += 1
+
+    // Automatische Kategorisierung für die neuen Transaktionen ausführen
+    if (response.import.imported_rows > 0) {
+      categorizeLoading.value = true
+      try {
+        await apiFetch<{ summary: unknown }>(
+          '/api/category-rules/apply',
+          { method: 'POST' },
+          authStore.token,
+        )
+      } catch {
+        // Kategorisierungsfehler sind nicht kritisch – Import war erfolgreich
+      } finally {
+        categorizeLoading.value = false
+      }
+    }
+
     await loadImportHistory()
   } catch (err) {
     error.value =
@@ -286,9 +305,27 @@ watch(
       <h3>Datei auswählen</h3>
 
       <div class="form-row">
-        <input :key="fileInputKey" type="file" accept=".csv,.CSV,.txt" @change="onFileChange" />
-        <button type="button" :disabled="loading || importLoading || !selectedFile" @click="submit">
+        <label class="file-button" :class="{ 'has-file': selectedFile }">
+          <input
+            :key="fileInputKey"
+            type="file"
+            accept=".csv,.CSV,.txt"
+            @change="onFileChange"
+          />
+          <span class="file-button-icon">📄</span>
+          <span class="file-button-text">{{ selectedFile ? selectedFile.name : 'Datei auswählen' }}</span>
+          <span v-if="selectedFile" class="file-button-clear" @click.stop="resetFlow">✕</span>
+        </label>
+        <button type="button" :disabled="loading || importLoading || !selectedFile || preview !== null" @click="submit">
           {{ loading ? 'Lade Vorschau…' : 'Vorschau laden' }}
+        </button>
+        <button
+          v-if="preview"
+          type="button"
+          :disabled="importLoading"
+          @click="startImport"
+        >
+          {{ importLoading ? 'Importiere…' : 'Import jetzt speichern' }}
         </button>
       </div>
 
@@ -298,7 +335,7 @@ watch(
       <p v-if="error" class="error">{{ error }}</p>
     </article>
 
-    <article v-if="preview" class="card">
+    <article v-if="preview" class="card preview-card">
       <h3>Erkanntes Format: {{ detectedLabel }}</h3>
       <ul class="meta-list">
         <li><strong>Datei:</strong> {{ preview.file_name }}</li>
@@ -321,11 +358,6 @@ watch(
           <li><strong>Fehler:</strong> {{ previewAnalysis.error_rows }}</li>
         </ul>
         <p><strong>Hinweis:</strong> {{ previewAnalysis.note }}</p>
-      </div>
-
-      <h4>Kopfzeilen</h4>
-      <div class="chips">
-        <span v-for="header in preview.headers" :key="header" class="chip">{{ header }}</span>
       </div>
 
       <h4>Beispielzeilen</h4>
@@ -356,9 +388,6 @@ watch(
             : 'Wenn die Vorschau passt, kannst du die Datei jetzt wirklich in die Datenbank übernehmen. Bereits bekannte Umsätze werden dabei duplicate-safe übersprungen.'
         }}
       </p>
-      <button type="button" :disabled="importLoading || !selectedFile" @click="startImport">
-        {{ importLoading ? 'Importiere…' : 'Import jetzt speichern' }}
-      </button>
     </article>
 
     <article v-if="importResult" class="card success">
@@ -437,6 +466,12 @@ watch(
   background: var(--color-surface);
   color: var(--color-text);
   box-shadow: var(--shadow-elevated);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.preview-card {
+  overflow-x: auto;
 }
 
 .label {
@@ -487,8 +522,74 @@ watch(
   align-items: center;
 }
 
-input[type='file'] {
-  max-width: 100%;
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.95rem;
+  border: 2px dashed var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-strong);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+  user-select: none;
+  position: relative;
+}
+
+.file-button:hover {
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.file-button.has-file {
+  border-style: solid;
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.file-button input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-button-icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.file-button-text {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.file-button-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  background: var(--color-background-mute);
+  color: var(--color-text-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.file-button-clear:hover {
+  background: var(--color-danger);
+  color: white;
 }
 
 button,

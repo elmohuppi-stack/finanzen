@@ -94,6 +94,19 @@ const analysisResponseCache = new Map<string, DashboardResponse>()
 
 const availableMonths = computed(() => dashboard.value?.filters.available_months ?? [])
 const availableYears = computed(() => dashboard.value?.filters.available_years ?? [])
+const canNavigateMonthBack = computed(() => {
+  const months = availableMonths.value
+  if (!months.length) return false
+  const idx = months.indexOf(selectedMonth.value)
+  return idx >= 0 && idx < months.length - 1
+})
+const canNavigateMonthForward = computed(() => {
+  const months = availableMonths.value
+  if (!months.length) return false
+  const idx = months.indexOf(selectedMonth.value)
+  return idx > 0
+})
+
 const sortedCategories = computed(() => {
   const getTypePriority = (category: CategoryItem) => {
     switch (category.category_type) {
@@ -580,9 +593,18 @@ function setThisQuarter() {
 }
 
 function navigateMonth(direction: number) {
-  const date = new Date(selectedMonth.value + '-01')
-  date.setMonth(date.getMonth() + direction)
-  selectedMonth.value = date.toISOString().slice(0, 7)
+  const months = availableMonths.value
+  if (!months.length) return
+  const idx = months.indexOf(selectedMonth.value)
+  // availableMonths ist absteigend sortiert (neuester zuerst),
+  // daher muss die Richtung umgekehrt werden:
+  // ‹ (direction=-1) soll zum früheren Monat → höherer Index
+  // › (direction=1) soll zum späteren Monat → niedrigerer Index
+  const nextIdx = idx - direction
+  if (nextIdx < 0 || nextIdx >= months.length) return
+  const nextMonth = months[nextIdx]
+  if (!nextMonth) return
+  selectedMonth.value = nextMonth
   loadAnalysis()
 }
 
@@ -692,13 +714,13 @@ watch(
           </div>
 
           <div v-if="viewMode === 'month'" class="date-controls">
-            <button class="nav-button" @click="navigateMonth(-1)">‹</button>
+            <button class="nav-button" :disabled="!canNavigateMonthBack" @click="navigateMonth(-1)">‹</button>
             <select v-model="selectedMonth" @change="loadAnalysis">
               <option v-for="month in availableMonths" :key="month" :value="month">
                 {{ month }}
               </option>
             </select>
-            <button class="nav-button" @click="navigateMonth(1)">›</button>
+            <button class="nav-button" :disabled="!canNavigateMonthForward" @click="navigateMonth(1)">›</button>
           </div>
 
           <div v-if="viewMode === 'year'" class="date-controls">
