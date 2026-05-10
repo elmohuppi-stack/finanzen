@@ -9,10 +9,11 @@ import { legalContact } from '@/lib/legal'
       <h2>Informationen zur Datenverarbeitung</h2>
       <p>
         Diese Datenschutzerklärung beschreibt die wesentlichen Verarbeitungen in
-        <strong>Finanzcockpit</strong>. Bitte prüfe die Inhalte vor einem öffentlichen Livegang und
+        <strong>Finanzcockpit</strong>, einschließlich der eingesetzten cookielosen
+        Reichweitenmessung mit Umami. Bitte prüfe die Inhalte vor einem öffentlichen Livegang und
         ergänze ggf. fehlende organisatorische Details.
       </p>
-      <p class="meta">Stand: 7. April 2026</p>
+      <p class="meta">Stand: 10. Mai 2026</p>
     </article>
 
     <article class="card">
@@ -90,7 +91,7 @@ import { legalContact } from '@/lib/legal'
 
     <article class="card">
       <h3>6. Lokale Speicherung im Browser</h3>
-      <p>Die Anwendung nutzt aktuell keine Marketing- oder Tracking-Cookies.</p>
+      <p>Die Anwendung nutzt keine Marketing-Cookies und setzt für Umami keine Cookies ein.</p>
       <p>
         Im Browser werden jedoch technisch erforderliche Informationen gespeichert, insbesondere:
       </p>
@@ -104,12 +105,35 @@ import { legalContact } from '@/lib/legal'
       </ul>
       <p>
         Diese Speicherung dient ausschließlich der Funktionalität und Transparenz der Anwendung und
-        fällt derzeit nicht unter werbliche oder analysierende Tracker.
+        ist von der separat beschriebenen cookielosen Reichweitenmessung zu unterscheiden.
       </p>
     </article>
 
     <article class="card">
-      <h3>7. Speicherdauer</h3>
+      <h3>7. Reichweitenmessung mit Umami</h3>
+      <p>
+        Zur datensparsamen Analyse der Nutzung der Website wird der Webanalyse-Dienst
+        <strong>Umami</strong> eingesetzt. Anbieter des eingesetzten Dienstes ist
+        <strong>Umami Software, Inc.</strong>.
+      </p>
+      <p>
+        Beim Aufruf der Anwendung werden dafür insbesondere gekürzte bzw. gehashte technische
+        Nutzungsdaten verarbeitet, etwa aufgerufene Seiten, Referrer, Gerätetyp, Browser,
+        Betriebssystem, Spracheinstellung und Zeitpunkt des Seitenaufrufs. Die Auswertung erfolgt
+        ohne den Einsatz von Cookies und dient ausschließlich dazu, Nutzung und technische
+        Stabilität der Anwendung besser zu verstehen.
+      </p>
+      <p>
+        Die Verarbeitung erfolgt auf Grundlage von <strong>Art. 6 Abs. 1 lit. f DSGVO</strong>
+        aufgrund des berechtigten Interesses an einer datensparsamen Reichweitenmessung und der
+        Verbesserung des Angebots. Weitere Informationen zur Datenverarbeitung durch Umami finden
+        sich unter
+        <a href="https://umami.is/privacy" target="_blank" rel="noreferrer">umami.is/privacy</a>.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>8. Speicherdauer</h3>
       <p>
         Konto- und Finanzdaten werden grundsätzlich so lange gespeichert, wie dies für die Nutzung
         der Anwendung erforderlich ist oder bis eine Löschung des Benutzerkontos bzw. einzelner
@@ -132,10 +156,15 @@ import { legalContact } from '@/lib/legal'
         Lokal im Browser gespeicherte Informationen bleiben erhalten, bis du dich ausloggst,
         Einstellungen änderst oder den lokalen Speicher deines Browsers löschst.
       </p>
+      <p>
+        Aggregierte oder pseudonymisierte Auswertungsdaten aus der Reichweitenmessung werden nur so
+        lange gespeichert, wie sie für die statistische Auswertung und technische Verbesserung
+        erforderlich sind.
+      </p>
     </article>
 
     <article class="card">
-      <h3>8. Rechte betroffener Personen</h3>
+      <h3>9. Rechte betroffener Personen</h3>
       <ul>
         <li>Auskunft über die verarbeiteten personenbezogenen Daten</li>
         <li>Berichtigung unrichtiger Daten</li>
@@ -147,7 +176,7 @@ import { legalContact } from '@/lib/legal'
     </article>
 
     <article class="card">
-      <h3>9. Kontakt zum Datenschutz</h3>
+      <h3>10. Kontakt zum Datenschutz</h3>
       <p>
         Bei Fragen zur Verarbeitung personenbezogener Daten kannst du dich an
         <a :href="legalContact.emailHref" :class="{ placeholder: !legalContact.emailConfigured }">

@@ -21,9 +21,9 @@ onMounted(() => {
       <div class="privacy-banner__content">
         <p class="privacy-banner__eyebrow">Datenschutz & lokale Speicherung</p>
         <p class="privacy-banner__text">
-          Diese App verwendet derzeit nur technisch notwendige lokale Speicherung für Anmeldung,
-          Darstellung und diesen Hinweis. Analyse- oder Marketing-Cookies werden aktuell nicht
-          eingesetzt.
+          Diese App verwendet technisch notwendige lokale Speicherung für Anmeldung, Darstellung
+          und diesen Hinweis. Zusätzlich wird eine cookielose, datensparsame Reichweitenmessung
+          über Umami eingesetzt. Details findest du im Datenschutzhinweis.
         </p>
       </div>
 
