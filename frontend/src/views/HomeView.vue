@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
 
 import { apiFetch } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
@@ -65,15 +64,31 @@ interface DashboardResponse {
     net: string
     opening_balance: string | null
     closing_balance: string | null
+    min_balance: string | null
+    max_balance: string | null
   }>
+  balance_history: Array<{
+    date: string
+    before: string
+    after: string
+  }>
+}
+
+interface BalanceHistoryEntry {
+  date: string
+  before: string
+  after: string
 }
 
 const authStore = useAuthStore()
 const dashboard = ref<DashboardResponse | null>(null)
 const loading = ref(false)
+const chartLoading = ref(false)
+const chartError = ref('')
 const error = ref('')
 const fallbackYear = new Date().getFullYear()
 const selectedYear = ref<number | null>(null)
+const balanceHistory = ref<BalanceHistoryEntry[]>([])
 
 const welcomeName = computed(() => (authStore.user?.name ? `, ${authStore.user.name}` : ''))
 const totalBalance = computed(() => {
@@ -106,11 +121,10 @@ const primaryAccountsCount = computed(() => {
   ).length
 })
 const monthlyRows = computed(() => dashboard.value?.monthly_balances ?? [])
-const chartRows = computed(() => {
-  return monthlyRows.value.filter((row) => {
-    return row.opening_balance !== null || row.closing_balance !== null || Number(row.net) !== 0
-  })
-})
+const hasMonthlyBalances = computed(() => monthlyRows.value.some((r) => r.opening_balance !== null))
+const chartMonths = computed(() =>
+  monthlyRows.value.filter((r) => r.min_balance !== null && r.max_balance !== null),
+)
 const chartLayout = {
   width: 1000,
   height: 240,
@@ -118,81 +132,65 @@ const chartLayout = {
   right: 968,
   top: 16,
   bottom: 186,
+  barWidth: 30,
 }
+const allChartValues = computed(() =>
+  chartMonths.value.flatMap((m) => [Number(m.min_balance), Number(m.max_balance)]),
+)
 const chartMinBalance = computed(() => {
-  const values = chartRows.value
-    .map((row) => row.closing_balance)
-    .filter((value): value is string => value !== null)
-    .map((value) => Number(value))
-
-  return values.length ? Math.min(...values) : 0
+  return allChartValues.value.length ? Math.min(...allChartValues.value) : 0
 })
 const chartMaxBalance = computed(() => {
-  const values = chartRows.value
-    .map((row) => row.closing_balance)
-    .filter((value): value is string => value !== null)
-    .map((value) => Number(value))
-
-  return values.length ? Math.max(...values) : 1
+  return allChartValues.value.length ? Math.max(...allChartValues.value) : 1
 })
-const chartRange = computed(() => {
-  return Math.max(1, chartMaxBalance.value - chartMinBalance.value)
-})
+const chartRange = computed(() => Math.max(1, chartMaxBalance.value - chartMinBalance.value))
 const chartPadding = computed(() => Math.max(250, chartRange.value * 0.12))
 const plottedMinBalance = computed(() => chartMinBalance.value - chartPadding.value)
 const plottedMaxBalance = computed(() => chartMaxBalance.value + chartPadding.value)
-const plottedRange = computed(() => {
-  return Math.max(1, plottedMaxBalance.value - plottedMinBalance.value)
-})
-const chartPoints = computed(() => {
-  return chartRows.value.map((row, index) => {
-    const value = Number(row.closing_balance ?? row.opening_balance ?? 0)
-    const x =
-      chartRows.value.length === 1
-        ? (chartLayout.left + chartLayout.right) / 2
-        : chartLayout.left +
-          (index / (chartRows.value.length - 1)) * (chartLayout.right - chartLayout.left)
-    const y =
-      chartLayout.bottom -
-      ((value - plottedMinBalance.value) / plottedRange.value) *
-        (chartLayout.bottom - chartLayout.top)
-
-    return {
-      key: row.month,
-      x: Number(x.toFixed(2)),
-      y: Number(y.toFixed(2)),
-      shortLabel: row.label.slice(0, 3),
-      value: row.closing_balance,
-    }
-  })
-})
-const chartTicks = computed(() => {
-  return Array.from({ length: 5 }, (_, index) => {
+const plottedRange = computed(() => Math.max(1, plottedMaxBalance.value - plottedMinBalance.value))
+const chartTicks = computed(() =>
+  Array.from({ length: 5 }, (_, index) => {
     const ratio = index / 4
     const value = plottedMaxBalance.value - ratio * plottedRange.value
     const y = chartLayout.top + ratio * (chartLayout.bottom - chartLayout.top)
-
     return {
       label: formatAxisMoney(value),
       y: Number(y.toFixed(2)),
     }
-  })
-})
-const lineChartPath = computed(() => buildSmoothPath(chartPoints.value))
-const lineAreaPath = computed(() => {
-  if (!chartPoints.value.length || !lineChartPath.value) {
-    return ''
-  }
-
-  const firstPoint = chartPoints.value[0]
-  const lastPoint = chartPoints.value[chartPoints.value.length - 1]
-
-  if (!firstPoint || !lastPoint) {
-    return ''
-  }
-
-  return `${lineChartPath.value} L ${lastPoint.x} ${chartLayout.bottom} L ${firstPoint.x} ${chartLayout.bottom} Z`
-})
+  }),
+)
+const barPositions = computed(() =>
+  chartMonths.value.map((m, index) => {
+    const count = chartMonths.value.length
+    const x =
+      count === 1
+        ? (chartLayout.left + chartLayout.right) / 2
+        : chartLayout.left + (index / (count - 1)) * (chartLayout.right - chartLayout.left)
+    const minVal = Number(m.min_balance)
+    const maxVal = Number(m.max_balance)
+    const openVal = Number(m.opening_balance)
+    const minY =
+      chartLayout.bottom -
+      ((minVal - plottedMinBalance.value) / plottedRange.value) *
+        (chartLayout.bottom - chartLayout.top)
+    const maxY =
+      chartLayout.bottom -
+      ((maxVal - plottedMinBalance.value) / plottedRange.value) *
+        (chartLayout.bottom - chartLayout.top)
+    const openY =
+      chartLayout.bottom -
+      ((openVal - plottedMinBalance.value) / plottedRange.value) *
+        (chartLayout.bottom - chartLayout.top)
+    return {
+      key: m.month,
+      label: m.label.slice(0, 3),
+      x: Number(x.toFixed(2)),
+      minY: Number(minY.toFixed(2)),
+      maxY: Number(maxY.toFixed(2)),
+      openY: Number(openY.toFixed(2)),
+    }
+  }),
+)
 
 function formatMoney(amount: number | string, currency = 'EUR') {
   return new Intl.NumberFormat('de-DE', {
@@ -263,40 +261,46 @@ function showsPrimaryBalance(accountType: string) {
   return accountType === 'checking_account' || accountType === 'cash_wallet'
 }
 
-function buildSmoothPath(points: Array<{ x: number; y: number }>) {
-  if (points.length === 0) {
-    return ''
-  }
-
-  const firstPoint = points[0]
-
-  if (!firstPoint) {
-    return ''
-  }
-
-  if (points.length === 1) {
-    return `M ${firstPoint.x} ${firstPoint.y}`
-  }
-
-  let path = `M ${firstPoint.x} ${firstPoint.y}`
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const current = points[index]
-    const next = points[index + 1]
-
-    if (!current || !next) {
-      continue
-    }
-
-    const controlX = current.x + (next.x - current.x) / 2
-    path += ` C ${controlX} ${current.y}, ${controlX} ${next.y}, ${next.x} ${next.y}`
-  }
-
-  return path
-}
-
 async function changeBalanceYear() {
   await loadDashboardOverview()
+}
+
+function navigateYear(direction: number) {
+  const currentYear = selectedYear.value ?? balanceYear.value
+  selectedYear.value = currentYear + direction
+  loadDashboardOverview()
+}
+
+async function loadBalanceHistory() {
+  if (!authStore.token) {
+    balanceHistory.value = []
+    chartError.value = ''
+    return
+  }
+
+  chartLoading.value = true
+  chartError.value = ''
+
+  try {
+    const params = new URLSearchParams()
+    if (selectedYear.value) {
+      params.set('year', String(selectedYear.value))
+    }
+
+    const data = await apiFetch<BalanceHistoryEntry[]>(
+      `/api/dashboard/balance-history?${params.toString()}`,
+      {},
+      authStore.token,
+    )
+
+    balanceHistory.value = data
+  } catch (err) {
+    console.error('Balance history load failed:', err)
+    chartError.value = err instanceof Error ? err.message : 'Fehler beim Laden'
+    balanceHistory.value = []
+  } finally {
+    chartLoading.value = false
+  }
 }
 
 async function loadDashboardOverview() {
@@ -323,6 +327,9 @@ async function loadDashboardOverview() {
 
     dashboard.value = response
     selectedYear.value = response.filters.selected_year
+
+    // Chart-Daten parallel (oder kurz nach dem Dashboard) laden
+    loadBalanceHistory()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Dashboard konnte nicht geladen werden.'
   } finally {
@@ -359,18 +366,6 @@ watch(
           Melde dich an und importiere deine ersten CSV-Dateien, um dein persönliches Dashboard zu
           füllen.
         </p>
-
-        <div class="hero-actions">
-          <RouterLink
-            class="link-button"
-            :to="authStore.isAuthenticated ? '/transactions' : '/login'"
-          >
-            {{ authStore.isAuthenticated ? 'Zu den Buchungen' : 'Anmelden' }}
-          </RouterLink>
-          <RouterLink v-if="authStore.isAuthenticated" class="ghost-link" to="/imports">
-            Import öffnen
-          </RouterLink>
-        </div>
       </div>
 
       <div v-if="authStore.isAuthenticated && dashboard" class="hero-highlight">
@@ -401,26 +396,29 @@ watch(
         <div class="section-header">
           <div>
             <h3>Saldoentwicklung {{ balanceYear }}</h3>
-            <p class="muted">Monatliche Übersicht mit Anfangssaldo, Endsaldo und Netto-Bewegung.</p>
+            <p class="muted">mit Minimum und Maximum</p>
           </div>
           <div class="section-actions">
             <label class="year-picker">
               <span>Jahr</span>
+              <button class="nav-button" :disabled="loading" @click="navigateYear(-1)">‹</button>
               <select v-model.number="selectedYear" :disabled="loading" @change="changeBalanceYear">
                 <option v-for="year in availableYears" :key="year" :value="year">
                   {{ year }}
                 </option>
               </select>
+              <button class="nav-button" :disabled="loading" @click="navigateYear(1)">›</button>
             </label>
-            <RouterLink class="text-link" to="/analysis">Mehr Analysen</RouterLink>
           </div>
         </div>
 
-        <p v-if="loading" class="muted inline-status">Saldoentwicklung wird aktualisiert…</p>
+        <p v-if="chartLoading" class="muted inline-status">Lade Saldoverlauf…</p>
 
-        <div v-if="chartRows.length" class="balance-visual">
+        <p v-else-if="chartError" class="warning inline-status">Saldo-Chart: {{ chartError }}</p>
+
+        <div v-else-if="chartMonths.length" class="balance-visual">
           <svg
-            class="line-chart"
+            class="range-chart"
             :viewBox="`0 0 ${chartLayout.width} ${chartLayout.height}`"
             preserveAspectRatio="none"
             aria-hidden="true"
@@ -460,27 +458,40 @@ watch(
               :y2="chartLayout.bottom"
               class="chart-axis"
             />
-            <path v-if="lineAreaPath" :d="lineAreaPath" class="chart-area" />
-            <path v-if="lineChartPath" :d="lineChartPath" class="chart-line" />
 
-            <circle
-              v-for="point in chartPoints"
-              :key="point.key"
-              :cx="point.x"
-              :cy="point.y"
-              r="4.2"
-              class="chart-point"
+            <!-- Range-Balken (min → max) pro Monat -->
+            <rect
+              v-for="bar in barPositions"
+              :key="bar.key"
+              :x="bar.x - chartLayout.barWidth / 2"
+              :y="bar.maxY"
+              :width="chartLayout.barWidth"
+              :height="Math.max(1, bar.minY - bar.maxY)"
+              class="chart-bar"
+              rx="3"
+              ry="3"
             />
 
+            <!-- Eröffnungspunkt -->
+            <circle
+              v-for="bar in barPositions"
+              :key="`${bar.key}-open`"
+              :cx="bar.x"
+              :cy="bar.openY"
+              r="4.5"
+              class="chart-open"
+            />
+
+            <!-- Monats-Labels -->
             <text
-              v-for="point in chartPoints"
-              :key="`${point.key}-x`"
-              :x="point.x"
+              v-for="bar in barPositions"
+              :key="`${bar.key}-label`"
+              :x="bar.x"
               :y="chartLayout.bottom + 24"
               class="chart-x-label"
               text-anchor="middle"
             >
-              {{ point.shortLabel }}
+              {{ bar.label }}
             </text>
           </svg>
         </div>
@@ -494,7 +505,8 @@ watch(
                 <th>Einnahmen</th>
                 <th>Ausgaben</th>
                 <th>Netto</th>
-                <th>Ende</th>
+                <th>Minimum</th>
+                <th>Maximum</th>
               </tr>
             </thead>
             <tbody>
@@ -506,7 +518,8 @@ watch(
                 <td :class="Number(row.net) >= 0 ? 'positive' : 'negative'">
                   {{ formatMoney(row.net) }}
                 </td>
-                <td>{{ row.closing_balance ? formatMoney(row.closing_balance) : '—' }}</td>
+                <td>{{ row.min_balance ? formatMoney(row.min_balance) : '—' }}</td>
+                <td>{{ row.max_balance ? formatMoney(row.max_balance) : '—' }}</td>
               </tr>
             </tbody>
           </table>
@@ -568,45 +581,6 @@ watch(
 
 .hero-highlight span:last-child {
   color: var(--color-text-muted);
-}
-
-.hero-actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 0.25rem;
-}
-
-.link-button,
-.ghost-link,
-.text-link {
-  text-decoration: none;
-}
-
-.link-button,
-.ghost-link {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 12px;
-  padding: 0.75rem 0.95rem;
-  font-weight: 700;
-}
-
-.link-button {
-  background: var(--color-accent-strong);
-  color: white;
-}
-
-.ghost-link {
-  border: 1px solid var(--color-border);
-  background: var(--color-surface-strong);
-  color: var(--color-text);
-}
-
-.text-link {
-  color: var(--color-accent-strong);
-  font-weight: 700;
 }
 
 .label {
@@ -742,7 +716,7 @@ watch(
   margin-bottom: 1rem;
 }
 
-.line-chart {
+.range-chart {
   width: 100%;
   height: 230px;
   display: block;
@@ -780,22 +754,16 @@ watch(
   font-size: 11px;
 }
 
-.chart-area {
-  fill: color-mix(in srgb, var(--color-accent-soft) 68%, transparent);
+.chart-bar {
+  fill: var(--color-accent-soft);
+  stroke: var(--color-accent-strong);
+  stroke-width: 1.5;
 }
 
-.chart-line {
-  fill: none;
-  stroke: var(--color-accent-strong);
-  stroke-width: 4.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.chart-point {
-  fill: var(--color-surface-strong);
-  stroke: var(--color-accent-strong);
-  stroke-width: 3;
+.chart-open {
+  fill: var(--color-accent-strong);
+  stroke: var(--color-surface-strong);
+  stroke-width: 2;
 }
 
 .inline-status {
@@ -824,7 +792,8 @@ watch(
 }
 
 .year-picker {
-  display: inline-grid;
+  display: inline-flex;
+  align-items: center;
   gap: 0.25rem;
 }
 
@@ -834,14 +803,40 @@ watch(
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  margin-right: 0.15rem;
 }
 
 .year-picker select {
-  min-width: 6.5rem;
+  min-width: 6rem;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-surface-strong);
-  padding: 0.45rem 0.65rem;
+  padding: 0.45rem 0.5rem;
+  text-align: center;
+}
+
+.year-picker .nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-strong);
+  color: var(--color-text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.year-picker .nav-button:hover:not(:disabled) {
+  background: var(--color-accent-soft);
+}
+
+.year-picker .nav-button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .table-wrapper {
@@ -897,7 +892,7 @@ tbody tr:hover td {
     font-size: 1.6rem;
   }
 
-  .line-chart {
+  .range-chart {
     height: 180px;
   }
 }

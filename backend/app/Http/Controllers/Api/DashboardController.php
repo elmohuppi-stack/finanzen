@@ -344,13 +344,20 @@ class DashboardController extends Controller
             'transactions' => $transactions->all(),
             'recent_transactions' => $transactions->take(10)->values()->all(),
             'imports' => $imports->all(),
-            'monthly_balances' => $responseScope === 'full'
-                ? $this->buildMonthlyBalances($accountModels, $balanceTransactions, $selectedYear)->all()
-                : [],
+            'monthly_balances' => $this->buildMonthlyBalances($accountModels, $balanceTransactions, $selectedYear)->all(),
         ];
 
         if ($cacheKey !== null) {
             cache()->put($cacheKey, $payload, now()->addSeconds(45));
+        }
+
+        // Full-Dashboard cachen (scope=full, view=all, keine Suche/Filter)
+        if ($responseScope === 'full' && $selectedView === 'all' && $selectedAccountId === null && $searchQuery === '') {
+            $this->dashboardCacheService->rememberFullPayload(
+                $user->id,
+                $selectedYear,
+                fn() => $payload,
+            );
         }
 
         return response()->json($payload);
@@ -580,15 +587,73 @@ class DashboardController extends Controller
     {
         $transactionsByAccount = $balanceTransactions->groupBy('account_id');
 
+        /** @var array<int, array<int, array{opening: float, closing: float}>> $accountBalanceCache */
+        $accountBalanceCache = [];
+
+        foreach ($accountModels as $account) {
+            $balanceAsOf = data_get($account->metadata, 'balance_as_of');
+
+            if ($balanceAsOf === null) {
+                continue;
+            }
+
+            $accountTransactions = $transactionsByAccount->get($account->id, collect());
+            $snapshotDate = CarbonImmutable::parse($balanceAsOf)->endOfDay();
+            $lastClosing = null;
+            $months = [];
+
+            foreach (range(1, 12) as $month) {
+                $monthStart = CarbonImmutable::create($year, $month, 1)->startOfMonth();
+                $monthEnd = $monthStart->endOfMonth();
+
+                $monthlyTransactions = $accountTransactions->filter(function (Transaction $transaction) use ($monthStart, $monthEnd): bool {
+                    $bookingDate = $transaction->booking_date ? CarbonImmutable::parse((string) $transaction->booking_date) : null;
+
+                    return $bookingDate !== null && $bookingDate->betweenIncluded($monthStart, $monthEnd);
+                });
+
+                $monthNet = (float) $monthlyTransactions->sum('amount');
+
+                if ($monthStart->lte($snapshotDate)) {
+                    // Rückwärts vom current_balance zum Monatsultimo (wie bisher)
+                    $afterMonthSum = (float) $accountTransactions
+                        ->filter(function (Transaction $transaction) use ($monthEnd, $snapshotDate): bool {
+                            $bookingDate = $transaction->booking_date ? CarbonImmutable::parse((string) $transaction->booking_date) : null;
+
+                            return $bookingDate !== null && $bookingDate->gt($monthEnd) && $bookingDate->lte($snapshotDate);
+                        })
+                        ->sum('amount');
+
+                    $closing = (float) $account->current_balance - $afterMonthSum;
+                    $opening = $closing - $monthNet;
+                } elseif ($lastClosing !== null) {
+                    // Vorwärts-Propagation für Monate nach dem Snapshot
+                    $opening = $lastClosing;
+                    $closing = $opening + $monthNet;
+                } else {
+                    continue;
+                }
+
+                $months[$month] = ['opening' => $opening, 'closing' => $closing];
+                $lastClosing = $closing;
+            }
+
+            $accountBalanceCache[$account->id] = $months;
+        }
+
         return collect(range(1, 12))
-            ->map(function (int $month) use ($accountModels, $transactionsByAccount, $year): array {
+            ->map(function (int $month) use ($accountModels, $transactionsByAccount, $accountBalanceCache, $year): array {
                 $monthStart = CarbonImmutable::create($year, $month, 1)->startOfMonth();
                 $monthEnd = $monthStart->endOfMonth();
                 $income = 0.0;
                 $expenses = 0.0;
                 $openingBalance = 0.0;
                 $closingBalance = 0.0;
-                $hasBalanceSnapshot = false;
+                $hasBalanceData = false;
+
+                // Alle Transaktionen des Monats (über alle Konten) für min/max-Berechnung sammeln
+                /** @var list<array{booking_date: CarbonImmutable, amount: float}> $allMonthTransactions */
+                $allMonthTransactions = [];
 
                 foreach ($accountModels as $account) {
                     $accountTransactions = $transactionsByAccount->get($account->id, collect());
@@ -612,33 +677,53 @@ class DashboardController extends Controller
                     $income += $monthlyIncome;
                     $expenses += $monthlyExpenses;
 
-                    $balanceAsOf = data_get($account->metadata, 'balance_as_of');
-
-                    if ($balanceAsOf === null) {
-                        continue;
+                    if (isset($accountBalanceCache[$account->id][$month])) {
+                        $balance = $accountBalanceCache[$account->id][$month];
+                        $openingBalance += $balance['opening'];
+                        $closingBalance += $balance['closing'];
+                        $hasBalanceData = true;
                     }
 
-                    $snapshotDate = CarbonImmutable::parse($balanceAsOf)->endOfDay();
+                    // Transaktionen für die kombinierte min/max-Berechnung sammeln
+                    foreach ($monthlyTransactions as $tx) {
+                        $bookingDate = $tx->booking_date ? CarbonImmutable::parse((string) $tx->booking_date) : null;
+                        if ($bookingDate !== null) {
+                            $allMonthTransactions[] = [
+                                'booking_date' => $bookingDate,
+                                'amount' => (float) $tx->amount,
+                            ];
+                        }
+                    }
+                }
 
-                    if ($monthStart->gt($snapshotDate)) {
-                        continue;
+                // Min/Max über kombinierte Buchungschronologie berechnen
+                $monthMin = null;
+                $monthMax = null;
+
+                if ($hasBalanceData) {
+                    $monthMin = $openingBalance;
+                    $monthMax = $openingBalance;
+
+                    usort($allMonthTransactions, fn(array $a, array $b): int => $a['booking_date'] <=> $b['booking_date']);
+
+                    $runningCombined = $openingBalance;
+                    foreach ($allMonthTransactions as $event) {
+                        $runningCombined += $event['amount'];
+                        if ($runningCombined < $monthMin) {
+                            $monthMin = $runningCombined;
+                        }
+                        if ($runningCombined > $monthMax) {
+                            $monthMax = $runningCombined;
+                        }
                     }
 
-                    $afterMonthSum = (float) $accountTransactions
-                        ->filter(function (Transaction $transaction) use ($monthEnd, $snapshotDate): bool {
-                            $bookingDate = $transaction->booking_date ? CarbonImmutable::parse((string) $transaction->booking_date) : null;
-
-                            return $bookingDate !== null && $bookingDate->gt($monthEnd) && $bookingDate->lte($snapshotDate);
-                        })
-                        ->sum('amount');
-
-                    $monthNet = (float) $monthlyTransactions->sum('amount');
-                    $accountClosingBalance = (float) $account->current_balance - $afterMonthSum;
-                    $accountOpeningBalance = $accountClosingBalance - $monthNet;
-
-                    $closingBalance += $accountClosingBalance;
-                    $openingBalance += $accountOpeningBalance;
-                    $hasBalanceSnapshot = true;
+                    // Auch den Endsaldo checken
+                    if ($closingBalance < $monthMin) {
+                        $monthMin = $closingBalance;
+                    }
+                    if ($closingBalance > $monthMax) {
+                        $monthMax = $closingBalance;
+                    }
                 }
 
                 return [
@@ -647,8 +732,10 @@ class DashboardController extends Controller
                     'income' => number_format($income, 2, '.', ''),
                     'expenses' => number_format($expenses, 2, '.', ''),
                     'net' => number_format($income - $expenses, 2, '.', ''),
-                    'opening_balance' => $hasBalanceSnapshot ? number_format($openingBalance, 2, '.', '') : null,
-                    'closing_balance' => $hasBalanceSnapshot ? number_format($closingBalance, 2, '.', '') : null,
+                    'opening_balance' => $hasBalanceData ? number_format($openingBalance, 2, '.', '') : null,
+                    'closing_balance' => $hasBalanceData ? number_format($closingBalance, 2, '.', '') : null,
+                    'min_balance' => $monthMin !== null ? number_format($monthMin, 2, '.', '') : null,
+                    'max_balance' => $monthMax !== null ? number_format($monthMax, 2, '.', '') : null,
                 ];
             })
             ->values();

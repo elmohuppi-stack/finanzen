@@ -15,6 +15,9 @@ interface DashboardResponse {
     income: string
     expenses: string
     net: string
+    total_balance: string
+    balance_as_of: string | null
+    balance_year: number
   }
   filters: {
     selected_view: 'month' | 'year' | 'range' | 'all'
@@ -47,6 +50,17 @@ interface DashboardResponse {
     counterparty_name: string | null
     description: string | null
     account_name: string | null
+  }>
+  monthly_balances: Array<{
+    month: string
+    label: string
+    income: string
+    expenses: string
+    net: string
+    opening_balance: string | null
+    closing_balance: string | null
+    min_balance: string | null
+    max_balance: string | null
   }>
 }
 
@@ -124,6 +138,59 @@ const sortedCategories = computed(() => {
       getTypePriority(left) - getTypePriority(right) || left.name.localeCompare(right.name, 'de')
     )
   })
+})
+
+const currentBalanceData = computed(() => {
+  const balances = dashboard.value?.monthly_balances ?? []
+
+  if (viewMode.value === 'month' && selectedMonth.value) {
+    const row = balances.find((b) => b.month === selectedMonth.value)
+    return row
+      ? {
+          opening: row.opening_balance,
+          min: row.min_balance,
+          max: row.max_balance,
+        }
+      : null
+  }
+
+  if (viewMode.value === 'year' && selectedYear.value) {
+    const yearBalances = balances.filter((b) => b.month.startsWith(String(selectedYear.value)))
+    if (!yearBalances.length) return null
+
+    const opening = yearBalances.find((b) => b.opening_balance !== null)?.opening_balance ?? null
+    const allMin = yearBalances
+      .map((b) => b.min_balance)
+      .filter((v): v is string => v !== null)
+      .map(Number)
+    const allMax = yearBalances
+      .map((b) => b.max_balance)
+      .filter((v): v is string => v !== null)
+      .map(Number)
+
+    return {
+      opening,
+      min: allMin.length ? String(Math.min(...allMin)) : null,
+      max: allMax.length ? String(Math.max(...allMax)) : null,
+    }
+  }
+
+  // range / all: über alle verfügbaren Monate
+  const allOpening = balances.map((b) => b.opening_balance).filter((v): v is string => v !== null)
+  const allMin = balances
+    .map((b) => b.min_balance)
+    .filter((v): v is string => v !== null)
+    .map(Number)
+  const allMax = balances
+    .map((b) => b.max_balance)
+    .filter((v): v is string => v !== null)
+    .map(Number)
+
+  return {
+    opening: allOpening[0] ?? null,
+    min: allMin.length ? String(Math.min(...allMin)) : null,
+    max: allMax.length ? String(Math.max(...allMax)) : null,
+  }
 })
 
 function buildCategoryTotals(type: CategoryDirection) {
@@ -714,13 +781,21 @@ watch(
           </div>
 
           <div v-if="viewMode === 'month'" class="date-controls">
-            <button class="nav-button" :disabled="!canNavigateMonthBack" @click="navigateMonth(-1)">‹</button>
+            <button class="nav-button" :disabled="!canNavigateMonthBack" @click="navigateMonth(-1)">
+              ‹
+            </button>
             <select v-model="selectedMonth" @change="loadAnalysis">
               <option v-for="month in availableMonths" :key="month" :value="month">
                 {{ month }}
               </option>
             </select>
-            <button class="nav-button" :disabled="!canNavigateMonthForward" @click="navigateMonth(1)">›</button>
+            <button
+              class="nav-button"
+              :disabled="!canNavigateMonthForward"
+              @click="navigateMonth(1)"
+            >
+              ›
+            </button>
           </div>
 
           <div v-if="viewMode === 'year'" class="date-controls">
@@ -765,6 +840,26 @@ watch(
             <span class="stat-label">Netto</span>
             <strong :class="Number(dashboard?.summary.net || 0) >= 0 ? 'positive' : 'negative'">
               {{ formatMoney(dashboard?.summary.net || 0) }}
+            </strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Kontostand</span>
+            <strong
+              :class="Number(currentBalanceData?.opening ?? 0) >= 0 ? 'positive' : 'negative'"
+            >
+              {{ currentBalanceData?.opening ? formatMoney(currentBalanceData.opening) : '—' }}
+            </strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Minimum</span>
+            <strong class="negative">
+              {{ currentBalanceData?.min ? formatMoney(currentBalanceData.min) : '—' }}
+            </strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Maximum</span>
+            <strong class="positive">
+              {{ currentBalanceData?.max ? formatMoney(currentBalanceData.max) : '—' }}
             </strong>
           </div>
         </div>
@@ -1184,8 +1279,8 @@ watch(
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(102px, 1fr));
-  gap: 0.55rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.4rem;
   align-items: stretch;
   flex: 0 0 auto;
 }
@@ -1196,8 +1291,7 @@ watch(
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
-  min-width: 102px;
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.5rem;
   border: 1px solid var(--color-border);
   border-radius: 14px;
   background: var(--color-surface-strong);
@@ -1212,7 +1306,7 @@ watch(
 }
 
 .stat-item strong {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
 }
 
 .eyebrow {

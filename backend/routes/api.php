@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CategoryRuleController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DashboardHistoryController;
 use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\TransactionController;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/me', [AuthController::class, 'me']);
     Route::get('/dashboard', [DashboardController::class, 'index']);
+    Route::get('/dashboard/balance-history', [DashboardHistoryController::class, 'index']);
     Route::get('/imports', [ImportController::class, 'index']);
     Route::post('/logout', [AuthController::class, 'logout']);
 

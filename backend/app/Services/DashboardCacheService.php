@@ -20,12 +20,43 @@ class DashboardCacheService
         );
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public function rememberFullPayload(int $userId, int $year, Closure $callback, int $seconds = 45): array
+    {
+        return Cache::remember(
+            $this->fullCacheKey($userId, $year),
+            now()->addSeconds($seconds),
+            $callback,
+        );
+    }
+
+    /**
+     * @return array<int, array{date: string, before: string, after: string}>
+     */
+    public function rememberBalanceHistory(int $userId, int $year, Closure $callback, int $seconds = 3600): array
+    {
+        return Cache::remember(
+            $this->historyCacheKey($userId, $year),
+            now()->addSeconds($seconds),
+            $callback,
+        );
+    }
+
     public function invalidateUser(int $userId): void
     {
         Cache::forever(
             $this->versionKey($userId),
             $this->currentVersion($userId) + 1,
         );
+
+        // Auch History-Cache für alle möglichen Jahre invalidieren
+        $pattern = sprintf('dashboard:balance_history:user:%d:*', $userId);
+
+        foreach (Cache::get($pattern, []) as $key) {
+            Cache::forget($key);
+        }
     }
 
     /**
@@ -40,6 +71,26 @@ class DashboardCacheService
             $userId,
             $this->currentVersion($userId),
             sha1(http_build_query($context)),
+        );
+    }
+
+    public function fullCacheKey(int $userId, int $year): string
+    {
+        return sprintf(
+            'dashboard:full:user:%d:v:%d:year:%d',
+            $userId,
+            $this->currentVersion($userId),
+            $year,
+        );
+    }
+
+    public function historyCacheKey(int $userId, int $year): string
+    {
+        return sprintf(
+            'dashboard:balance_history:user:%d:v:%d:year:%d',
+            $userId,
+            $this->currentVersion($userId),
+            $year,
         );
     }
 
