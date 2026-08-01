@@ -10,6 +10,16 @@ services:
       - "127.0.0.1:${API_PORT:-3022}:3000"
     volumes:
       - finanzen_database:/app/storage/database
+    # Ueberschreibt den HEALTHCHECK aus dunglas/frankenphp. Der prueft
+    # http://localhost:2019/metrics (Caddys Admin-API), die hier nicht
+    # erreichbar ist - der Container galt dauerhaft als "unhealthy", obwohl
+    # die App normal ausgeliefert hat. /up ist Laravels Health-Endpoint.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/up || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   web:
     build:
