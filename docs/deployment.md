@@ -175,9 +175,38 @@ ssh elmarhepp '
 '
 ```
 
-Das tägliche `pg-shared`-Backup deckt diese App **nicht** ab — es sichert nur
-PostgreSQL. Off-site abgedeckt ist sie über das Hetzner-Image-Backup (7 Slots,
-ganze Platte), das aber nur den **ganzen Server** zurückrollt, siehe
+### Nächtliche Sicherung
+
+Auf dem Server läuft täglich um 3:45 dieselbe Sicherung, mit 14 Tagen
+Aufbewahrung — bewusst versetzt zum `pg-shared`-Backup um 3:30. Beide Dateien
+liegen versioniert im Repo unter `deploy/` und werden von dort installiert:
+
+```bash
+./deploy.sh install-cron
+```
+
+| Datei | Zweck |
+|---|---|
+| `/usr/local/sbin/finanzen-db-backup` | ruft `artisan db:backup --keep=14` im `api`-Container auf |
+| `/etc/cron.d/finanzen-db-backup` | `45 3 * * *`, `MAILTO=root` |
+
+Das Skript gibt im Erfolgsfall nichts aus; jeder Fehler geht als Mail an root.
+Läuft der `api`-Container nicht, bricht es ab, statt eine leere Sicherung zu
+schreiben. Prüfen lässt es sich jederzeit von Hand:
+
+```bash
+ssh elmarhepp '/usr/local/sbin/finanzen-db-backup && echo "Sicherung in Ordnung"'
+```
+
+### Die drei Schichten
+
+| Schicht | Deckt ab | Granularität |
+|---|---|---|
+| `artisan db:backup`, nächtlich + vor jedem Deploy | die Datenbank dieser App | einzelner Stand, 14 Tage |
+| Hetzner-Image, 7 Slots | ganze Platte, off-site | nur der **ganze Server** zurück |
+| `pg_dumpall` um 3:30 | **nicht diese App** — nur die vier Postgres-DBs | — |
+
+Details zu den beiden serverweiten Schichten:
 [DEPLOYMENT.md, Abschnitt 7](../../optimize-hetzner/DEPLOYMENT.md#7-backup-und-restore).
 
 ---
@@ -217,6 +246,25 @@ EOF'
 
 Vorlage: `frontend/.env.example`. Welche Angaben rechtlich verpflichtend sind, steht
 in [NEUE-APP.md, Abschnitt 3](../../optimize-hetzner/NEUE-APP.md#3-impressum-und-datenschutz).
+
+---
+
+## SQLite-Einstellungen
+
+Die App bleibt bewusst bei SQLite: 20 MB, ein Schreiber, keine Nebenläufigkeit —
+der Zweig aus dem [Entscheidungsbaum](../../optimize-hetzner/ARCHITEKTUR.md#3-entscheidungsbaum-wo-liegen-die-daten).
+Zwei Einstellungen in `config/database.php` sorgen dafür, dass das auch unter
+parallelen Requests von frankenphp trägt:
+
+| Einstellung | Wert | Warum |
+|---|---|---|
+| `journal_mode` | `WAL` | Leser blockieren Schreiber nicht mehr — sonst sperrt ein CSV-Import die parallelen Requests aus |
+| `busy_timeout` | `5000` | wartet 5 s auf die Sperre, statt sofort mit „database is locked" abzubrechen |
+| `synchronous` | `NORMAL` | mit WAL der übliche Kompromiss; `FULL` kostet Schreibleistung ohne echten Gewinn |
+
+Alle drei sind über `DB_JOURNAL_MODE`, `DB_BUSY_TIMEOUT` und `DB_SYNCHRONOUS`
+überschreibbar. `journal_mode` ist eine Eigenschaft der Datei: einmal gesetzt,
+bleibt WAL bestehen, auch für spätere Verbindungen.
 
 ---
 

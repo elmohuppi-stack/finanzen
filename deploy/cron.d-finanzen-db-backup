@@ -1,0 +1,10 @@
+# /etc/cron.d/finanzen-db-backup
+#
+# Tägliche Sicherung der SQLite-Datenbank von Finanzen. Der pg_dumpall der
+# gemeinsamen Postgres-Instanz deckt diese App nicht ab, und das Hetzner-Image
+# kann nur den ganzen Server zurückrollen — das hier ist die Schicht dazwischen.
+#
+# 3:45 statt 3:30, damit es sich nicht mit pg-shared-backup überschneidet.
+# Das Skript gibt nur im Fehlerfall etwas aus, Fehler gehen als Mail an root.
+MAILTO=root
+45 3 * * * root /usr/local/sbin/finanzen-db-backup

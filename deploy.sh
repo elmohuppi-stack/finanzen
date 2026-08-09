@@ -7,6 +7,7 @@
 #   ./deploy.sh status       Container und Endpunkte
 #   ./deploy.sh logs [api|web]
 #   ./deploy.sh migrate      nur Migrationen nachziehen
+#   ./deploy.sh install-cron nächtliche Sicherung auf dem Server einrichten
 #   ./deploy.sh rollback <commit>
 #
 # Serverweite Regeln: ~/workspace/optimize-hetzner
@@ -120,6 +121,29 @@ action_deploy() {
     fail "Endpunkte antworten nicht mit 200. Logs: ./deploy.sh logs api"
 }
 
+action_install_cron() {
+    info "Sicherungs-Skript und cron-Eintrag übertragen"
+    scp -q deploy/finanzen-db-backup "$SERVER:/tmp/finanzen-db-backup"
+    scp -q deploy/cron.d-finanzen-db-backup "$SERVER:/tmp/cron.d-finanzen-db-backup"
+
+    ssh "$SERVER" "
+        install -m 700 -o root -g root /tmp/finanzen-db-backup /usr/local/sbin/finanzen-db-backup &&
+        install -m 644 -o root -g root /tmp/cron.d-finanzen-db-backup /etc/cron.d/finanzen-db-backup &&
+        rm -f /tmp/finanzen-db-backup /tmp/cron.d-finanzen-db-backup
+    "
+
+    ok "Installiert: /usr/local/sbin/finanzen-db-backup, /etc/cron.d/finanzen-db-backup"
+
+    info "Probelauf"
+    if ssh "$SERVER" "/usr/local/sbin/finanzen-db-backup"; then
+        ok "Sicherung läuft — nächtlich um 3:45"
+    else
+        echo
+        fail "Probelauf fehlgeschlagen. Der cron-Eintrag steht, greift aber erst,
+wenn der laufende Container den Befehl db:backup kennt — also nach dem nächsten ./deploy.sh."
+    fi
+}
+
 action_status() {
     info "Container"
     remote "$COMPOSE ps"
@@ -160,12 +184,13 @@ action_rollback() {
 case "${1:-deploy}" in
     deploy)   action_deploy ;;
     backup)   require_checkout; backup_database ;;
+    install-cron) action_install_cron ;;
     status)   action_status ;;
     logs)     action_logs "${2:-}" ;;
     migrate)  action_migrate ;;
     rollback) action_rollback "${2:-}" ;;
     help|-h|--help)
-        sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'
         ;;
     *) fail "Unbekannte Aktion: $1 (siehe ./deploy.sh help)" ;;
 esac

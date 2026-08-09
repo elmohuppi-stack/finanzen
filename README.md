@@ -225,7 +225,9 @@ Domains:
 - `finanzen.elmarhepp.de` (Port `3021`)
 - `finanzen-api.elmarhepp.de` (Port `3022`)
 
-Der vollständige Ablauf inklusive Datenbank-Sicherung, Artisan-Befehlen in Produktion und Rollback steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/optimize-hetzner`.
+Bequemer ist `make deploy`: prüft sauberen Working Tree, gepushten Stand und Tests, sichert die Live-Datenbank, baut auf dem Server, migriert und verifiziert die Endpunkte. Die Datenbank wird zusätzlich nächtlich gesichert (`./deploy.sh install-cron`, 14 Tage).
+
+Der vollständige Ablauf inklusive Restore und Rollback steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/optimize-hetzner`.
 
 ---
 

@@ -1,0 +1,35 @@
+#!/bin/sh
+# ============================================================
+# Tägliche Sicherung der Finanzen-SQLite-Datenbank
+#
+# Ziel:  /var/www/finanzen → Volume finanzen_database →
+#        storage/database/backups/backup-<zeitstempel>.sqlite
+# Läuft: /etc/cron.d/finanzen-db-backup, 3:45, als root
+#
+# Gibt im Erfolgsfall NICHTS aus — cron mailt sonst jede Nacht. Jeder Fehler
+# geht über stderr als Mail an root und beendet mit Exit != 0.
+#
+# Installation: ./deploy.sh install-cron (aus dem Repo)
+# ============================================================
+set -eu
+
+APP_DIR=/var/www/finanzen
+COMPOSE_FILE=docker-compose.prod.yml
+KEEP=14
+
+cd "$APP_DIR" || {
+    echo "finanzen-db-backup: $APP_DIR nicht gefunden." >&2
+    exit 1
+}
+
+if ! docker compose -f "$COMPOSE_FILE" ps --status running --format '{{.Service}}' | grep -qx api; then
+    echo "finanzen-db-backup: der api-Container läuft nicht, keine Sicherung erstellt." >&2
+    exit 1
+fi
+
+if ! output="$(docker compose -f "$COMPOSE_FILE" exec -T api php artisan db:backup --keep="$KEEP" 2>&1)"; then
+    echo "finanzen-db-backup: Sicherung fehlgeschlagen." >&2
+    echo "$output" >&2
+    echo "Fehlt der Befehl db:backup, läuft im Container noch ein Stand vor dem 9. August — dann erst deployen." >&2
+    exit 1
+fi
