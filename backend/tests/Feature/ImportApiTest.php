@@ -20,10 +20,10 @@ class ImportApiTest extends TestCase
         Sanctum::actingAs(User::factory()->create());
 
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
-"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE27700202700015820743";"-31,04";"";"";"56006389643387010426134430"
+"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE02100500000054540402";"-31,04";"";"";"00000000000000000000000000"
 CSV;
 
         $file = UploadedFile::fake()->createWithContent('giro.csv', $content);
@@ -52,10 +52,10 @@ CSV;
         Sanctum::actingAs(User::factory()->create());
 
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
-"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE27700202700015820743";"-31,04";"";"";"56006389643387010426134430"
+"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE02100500000054540402";"-31,04";"";"";"00000000000000000000000000"
 CSV;
 
         $file = UploadedFile::fake()->createWithContent('giro.csv', $content);
@@ -84,10 +84,10 @@ CSV;
         Sanctum::actingAs(User::factory()->create());
 
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
-"11.03.26";"11.03.26";"Gebucht";"Bundesagentur für Arbeit - Familienkasse";"Hepp, Bettina                                                         Richard-Wagner-Str. 25";"KG527002FK073735 0326 056062472428/3000124461083";"Eingang";"DE07760000000076001615";"777";"";"";"056062472428"
+"11.03.26";"11.03.26";"Gebucht";"Bundesagentur für Arbeit - Familienkasse";"Mustermann, Erika                                                     Musterstraße 1";"KG000000FK000000 0326 000000000000/0000000000000";"Eingang";"DE02300209000106531065";"777";"";"";"000000000000"
 CSV;
 
         $file = UploadedFile::fake()->createWithContent('giro-income.csv', $content);
@@ -109,12 +109,12 @@ CSV;
         Sanctum::actingAs(User::factory()->create());
 
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 "Zeitraum:";"01.01.2026 - 04.04.2026"
 "Kontostand vom 04.04.2026:";"11.256,27 €"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
-"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE27700202700015820743";"-31,04";"";"";"56006389643387010426134430"
+"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE02100500000054540402";"-31,04";"";"";"00000000000000000000000000"
 CSV;
 
         $file = UploadedFile::fake()->createWithContent('giro-balance.csv', $content);
@@ -136,10 +136,10 @@ CSV;
         Sanctum::actingAs(User::factory()->create());
 
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
-"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE27700202700015820743";"-31,04";"";"";"56006389643387010426134430"
+"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE02100500000054540402";"-31,04";"";"";"00000000000000000000000000"
 CSV;
 
         $firstFile = UploadedFile::fake()->createWithContent('giro.csv', $content);

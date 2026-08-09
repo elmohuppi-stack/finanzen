@@ -11,7 +11,7 @@ class CsvImportServiceTest extends TestCase
     public function test_it_detects_dkb_giro_csv_from_headers(): void
     {
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
 CSV;
@@ -24,7 +24,7 @@ CSV;
     public function test_it_detects_visa_csv_from_headers(): void
     {
         $content = <<<'CSV'
-"Karte";"Visa Kreditkarte";"4748 •••• •••• 3944"
+"Karte";"Visa Kreditkarte";"4000 •••• •••• 0000"
 ""
 "Belegdatum";"Wertstellung";"Status";"Beschreibung";"Umsatztyp";"Betrag (€)";"Fremdwährungsbetrag"
 CSV;
@@ -49,10 +49,10 @@ CSV;
     public function test_it_builds_a_preview_with_headers_and_sample_rows(): void
     {
         $content = <<<'CSV'
-"Girokonto";"DE86120300000016478885"
+"Girokonto";"DE02120300000000202051"
 ""
 "Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"IBAN";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
-"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE27700202700015820743";"-31,04";"";"";"56006389643387010426134430"
+"02.04.26";"02.04.26";"Gebucht";"ISSUER";"REWE";"Girokartenumsatz";"Ausgang";"DE02100500000054540402";"-31,04";"";"";"00000000000000000000000000"
 CSV;
 
         $service = new CsvImportService(new CsvImportDetector());
