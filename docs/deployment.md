@@ -77,17 +77,27 @@ Die weitergehenden Prüfschritte nach einem Deploy — Container-Status, Speiche
 doppelte Netzwerk-Aliase — stehen zentral in
 [DEPLOYMENT.md, Abschnitt 4](../../optimize-hetzner/DEPLOYMENT.md#4-nach-jedem-deploy-prüfen).
 
-### Konfiguration auf dem Server
+### Konfiguration: welche Datei wo lebt
 
-Drei Dateien liegen **nur dort** und sind bewusst nicht im Repo:
+Eine Regel: **öffentliche Build-Werte im Repo, alles Personenbezogene oder
+Geheime nur auf dem Server.**
 
-| Datei | Inhalt |
-|---|---|
-| `backend/.env.production` | App-Key, DB-Pfad, Mail, alles Backend-seitige |
-| `frontend/.env.production.local` | die `VITE_LEGAL_*`-Werte für Impressum und Datenschutz |
-| — | eine Root-`.env` gibt es bewusst **nicht**, siehe oben |
+| Datei | Ort | Inhalt |
+|---|---|---|
+| `frontend/.env.production` | **Repo** | nur `VITE_API_BASE_URL`. Muss versioniert sein, weil der Docker-Build sie braucht — sonst baut ein frischer Checkout ein Frontend ohne API-Ziel, ohne Fehler |
+| `frontend/.env.production.local` | Server | die `VITE_LEGAL_*`-Werte für Impressum und Datenschutz, `chmod 600` |
+| `backend/.env.production` | Server | App-Key, DB-Pfad, Mail, alles Backend-seitige |
+| `*.example` | Repo | Vorlagen ohne echte Werte |
+| Root-`.env` | — | gibt es bewusst **nicht**, siehe oben |
 
-Sie überstehen `git pull` und `git reset --hard`, weil git sie nicht kennt.
+Die Server-Dateien überstehen `git pull` und `git reset --hard`, weil git sie
+nicht kennt. `frontend/.env.production` dagegen **wird überschrieben** — sie
+gehört dem Repo. Wer die API-URL auf dem Server ändern will, trägt sie in
+`.env.production.local` ein: Vite lädt die Datei später und sie gewinnt für
+denselben Schlüssel.
+
+Die `.gitignore` benennt diese Ausnahme ausdrücklich, damit der Zustand nicht
+mehr im Widerspruch zu den Regeln steht.
 
 > **Fallstrick, der einmal zugeschlagen hat:** `frontend/.dockerignore` schließt
 > `.env.local` aus. Wer die Rechtsangaben dort einträgt, bekommt live die

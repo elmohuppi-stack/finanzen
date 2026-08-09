@@ -7,11 +7,22 @@
 /frontend/dist/
 
 # Environment
+# Regel: öffentliche Build-Werte und Vorlagen gehören ins Repo, alles
+# Personenbezogene oder Geheime ausschließlich auf den Server bzw. nach lokal.
 /backend/.env
 /backend/.env.*
 /frontend/.env
 /frontend/.env.*
-!.env.example
+
+# Vorlagen
+!*.example
+
+# Ausnahme mit Ansage: enthält nur die öffentliche API-URL und muss versioniert
+# sein, weil der Docker-Build des Frontends sie braucht. Fehlt sie, baut ein
+# frischer Checkout ein Frontend ohne API-Ziel — ohne dass der Build scheitert.
+# Vertrauliches gehört nach frontend/.env.production.local: Vite lädt die Datei
+# später und sie gewinnt damit für denselben Schlüssel.
+!/frontend/.env.production
 
 # Runtime / storage
 /backend/storage/*.key
