@@ -3,7 +3,7 @@
 ## Purpose
 
 This repository contains a multi-user finance application built with `Laravel` and `Vue 3`.
-The project focuses on importing and reconciling personal finance data from `DKB Giro`, `DKB Visa`, `PayPal`, and later `Bargeld` / asset accounts.
+The project focuses on importing and reconciling personal finance data from `DKB Giro`, `DKB Visa`, `PayPal` and `Bargeld`; asset accounts may follow.
 
 ## Product context
 
@@ -15,7 +15,8 @@ Key business goals:
 - support transaction splits for mixed payments, e.g. supermarket + cash withdrawal
 - provide clean dashboard, categories, and charts
 - keep the analysis tab optimized for spending review with compact rows and modal-based recategorization / rule creation
-- keep the public legal pages (`Impressum`, `Datenschutz`) and env-based legal metadata consistent before a public relaunch
+- track cash as its own account: withdrawals mirror into it, cash spending is entered by hand
+- keep the public legal pages (`Impressum`, `Datenschutz`) and their env-based contact data correct — the app is publicly reachable
 
 ## Working rules for agents
 
@@ -32,24 +33,19 @@ Key business goals:
 
 - `backend/` → Laravel API, auth, imports, domain models
 - `frontend/` → Vue UI, auth state, import preview, dashboard shell, legal pages and privacy notice banner
-- `docs/plan.md` → feature and architecture plan
-- `docs/OWNER_GUIDE.md` → handover and next steps for the project owner
+- `deploy.sh`, `deploy/` → deployment and the server-side backup cron
+- `README.md` → what the app does today and what is next (the single status source)
+- `docs/plan.md` → domain concept: data model, import rules, category catalogue
+- `docs/deployment.md` → how to deploy and operate this app
 
-## Immediate priorities
+Keep each statement in exactly one of those files and link instead of repeating —
+the status list used to exist in four places and had already drifted apart.
 
-1. persist CSV imports in the database ✅
-2. normalize Giro / Visa / PayPal rows into shared transaction records ✅
-3. implement link logic for Visa and PayPal ✅
-4. add split UI and dashboard tables/charts ✅
-5. add default category rules for common expenses (Amazon, Prime, Netflix, cash withdrawals) ✅
-6. handle cash withdrawals and cashback in transactions ✅
-7. refine UI for better usability (compact category cards, improved counterparty display) ✅
-8. add comprehensive tests and ensure builds pass ✅
-9. improve analysis tab with compact transaction edit modal for recategorization and rule creation ✅
-10. speed up analysis loading on live and keep month switching responsive ✅
-11. add legal pages and env-driven legal contact data before public relaunch ✅
-12. finalize legal wording and reactivate the public deployment 🔄
-13. add a `cash_wallet` account with manual bookings and automatic counter bookings for withdrawals ✅
+## Where the project stands
+
+Live at `finanzen.elmarhepp.de` since 9 August 2026. Imports, categories, rules,
+analysis, splits, transfer linking, the cash wallet and the legal pages are done.
+The current list of what comes next is in `README.md` — do not duplicate it here.
 
 ## Local workflow
 
@@ -62,5 +58,24 @@ make check
 
 ## Deployment
 
-Production runs on the Hetzner server `helsinki-80gb`, deployed via `git pull` on the server.
-App-specific steps are in `docs/deployment.md`; the server-wide rules live outside this repo in `~/workspace/optimize-hetzner`.
+Production runs on the Hetzner server `helsinki-80gb`. Deploy with `make deploy`
+(tests, backup, `git pull`, rebuild, migrate, verify). App-specific steps are in
+`docs/deployment.md`; the server-wide rules live outside this repo in
+`~/workspace/optimize-hetzner`.
+
+Two things that bit us and are easy to repeat:
+
+- `-f docker-compose.prod.yml` is mandatory on the server — without it Compose
+  picks the dev file with its own Postgres and Mailpit.
+- `VITE_*` values are baked in at build time and `frontend/.dockerignore` excludes
+  `.env.local`. Production legal data lives in `frontend/.env.production.local` on
+  the server, and changing it requires a rebuild.
+
+## Before pushing
+
+```bash
+make test
+git status
+```
+
+Never commit real CSV files or `.env` files with production values.

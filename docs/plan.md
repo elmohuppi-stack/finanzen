@@ -1,4 +1,8 @@
-# Plan: Finanz-App MVP auf Laravel + Vue
+# Fachliches Konzept
+
+Was die App inhaltlich leisten soll und wie die Finanzdaten modelliert sind.
+**Kein Statusdokument** — was fertig ist, steht im `README.md`, der Deploy in
+`docs/deployment.md`.
 
 ## Ziel
 
@@ -13,27 +17,9 @@ Der erste produktive Fokus liegt auf:
 - sauberer Integration von `Giro`, `Visa`, `PayPal` und `Bargeld`
 - einem öffentlichen Basisauftritt mit `Impressum`, `Datenschutz` und sauber konfigurierbaren Anbieterangaben
 
-## MVP-Umfang
+## Abgrenzung
 
-### Enthalten in Version 1
-
-- mehrbenutzerfähige Anwendung ✅
-- Registrierung, Login, Passwort-Reset ✅
-- zunächst ein primäres Girokonto pro Benutzer ✅
-- CSV-Import für `Girokonto`, `Visa` und `PayPal` ✅
-- Dubletten-sicherer Import bei mehrfach importierten oder überlappenden Dateien ✅
-- Kategorien aus Standardkatalog, pro Benutzer erweiterbar ✅
-- Dashboard mit KPI-Karten, Timeline, Charts und Basis-Auswertungen ✅
-- manuelle Split-Funktion für Buchungen ✅
-- Bargeld als eigene auswertbare Finanzquelle ✅
-- Standard-Kategorienregeln für häufige Ausgaben (z.B. Amazon, Prime, Netflix) ✅
-- Behandlung von Bargeldabhebungen und Cashback ✅
-- Kompakte UI-Elemente und verbesserte Anzeige von Gegenparteien ✅
-- Auswertung mit direkter Umbuchung und Regelanlage pro Transaktion über ein kompaktes Modal ✅
-- Basis-Rechtstexte im Frontend (`Impressum`, `Datenschutz`, Datenschutzhinweis) ✅
-- rechtliche Kontaktangaben über `VITE_LEGAL_*`-Umgebungsvariablen statt hart im Code ✅
-
-### Nicht Teil von V1
+### Bewusst nicht Teil der Anwendung
 
 - direkte DKB-API/PSD2-Integration
 - Mobile-App
@@ -57,15 +43,6 @@ Der erste produktive Fokus liegt auf:
 - Zeitfilter: `aktueller Zeitraum`, `Monat`, `Quartal`, `Jahr`, freier Zeitraum
 - Auswertung mit Kategorienbalken und kompaktem Transaktions-Edit-Modal
 - öffentliche Rechtstext-Seiten und Datenschutzhinweis, rechtliche Angaben per `VITE_LEGAL_*` konfigurierbar
-
-### Deployment
-
-Ablauf und Befehle: `docs/deployment.md`. Serverweite Regeln: `~/workspace/optimize-hetzner`.
-
-- Frontend und API auf getrennten Subdomains
-- `docker compose` mit `docker-compose.prod.yml`
-- Host-`nginx` als Reverse Proxy, HTTPS via `certbot`
-- lokal entwickeln, per `git pull` auf dem Server ausrollen
 
 ## Finanzquellen / Kontotypen
 
@@ -144,33 +121,6 @@ Umsetzung (`app/Services/CashWalletService.php`):
 - `current_balance` und `metadata.balance_as_of` des Bargeldkontos werden nach jeder Änderung neu berechnet, damit Kontostand und Verlaufschart stimmen
 - das Bargeldkonto trägt einen Stichtag (`metadata.mirror_start_date`); ältere Abhebungen werden nicht gespiegelt, damit der Bestand nicht durch nicht erfasste Alt-Ausgaben aufgebläht wird
 - Bestandsdaten lassen sich einmalig nachziehen mit `php artisan cash:sync-mirrors --since=YYYY-MM-DD` (optional `--email=`, `--since=none` hebt den Stichtag auf)
-
-## Dashboard-Vorschlag
-
-### KPI-Karten
-
-- Giro-Kontostand
-- offener Visa-Saldo
-- Bargeldbestand
-- Einnahmen im Monat
-- Ausgaben im Monat
-- Sparquote
-
-### Konsolidierte Timeline
-
-Eine gemeinsame Umsatzliste mit Badges wie:
-
-- `Giro`
-- `Visa 1`
-- `Visa 2`
-- `PayPal`
-- `Bargeld`
-
-### Charts
-
-1. Saldoverlauf
-2. Einnahmen vs. Ausgaben pro Monat
-3. Ausgaben nach Kategorie
 
 ## Kategorien
 

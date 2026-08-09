@@ -18,7 +18,8 @@ Prüfschritte nach dem Deploy, Störungstabelle, Backup-Strategie — steht zent
 | API | `https://finanzen-api.elmarhepp.de`, Port `3022` |
 | Server-Verzeichnis | `/var/www/finanzen` |
 | Compose-Datei | `docker-compose.prod.yml` (**Pflichtangabe**, `docker-compose.yml` ist die Dev-Variante) |
-| Deploy-Weg | `git pull` auf dem Server |
+| Deploy-Weg | `make deploy` → `git pull` auf dem Server |
+| Live seit | Bargeldkonto und nächtliche Sicherung: 9. August 2026 |
 | Persistenz | SQLite im Volume `finanzen_database`, gemountet unter `/app/storage/database` |
 | Konfiguration | `backend/.env.production` und `frontend/.env.production` per `env_file` |
 | SSH | `ssh elmarhepp` |
@@ -76,27 +77,52 @@ Die weitergehenden Prüfschritte nach einem Deploy — Container-Status, Speiche
 doppelte Netzwerk-Aliase — stehen zentral in
 [DEPLOYMENT.md, Abschnitt 4](../../optimize-hetzner/DEPLOYMENT.md#4-nach-jedem-deploy-prüfen).
 
-### Einmalig: Server-Verzeichnis von rsync auf git umstellen
+### Konfiguration auf dem Server
 
-Bis August 2026 wurde `/var/www/finanzen` per `rsync` gepflegt und ist deshalb noch
-kein Git-Checkout. Die Umstellung passiert einmal:
+Drei Dateien liegen **nur dort** und sind bewusst nicht im Repo:
+
+| Datei | Inhalt |
+|---|---|
+| `backend/.env.production` | App-Key, DB-Pfad, Mail, alles Backend-seitige |
+| `frontend/.env.production.local` | die `VITE_LEGAL_*`-Werte für Impressum und Datenschutz |
+| — | eine Root-`.env` gibt es bewusst **nicht**, siehe oben |
+
+Sie überstehen `git pull` und `git reset --hard`, weil git sie nicht kennt.
+
+> **Fallstrick, der einmal zugeschlagen hat:** `frontend/.dockerignore` schließt
+> `.env.local` aus. Wer die Rechtsangaben dort einträgt, bekommt live die
+> Platzhalter zu sehen — die Datei landet nie im Build-Kontext. Für Produktion ist
+> `frontend/.env.production.local` der richtige Ort; Vite lädt sie beim Build im
+> Modus `production`, und `.dockerignore` filtert sie nicht heraus. Nach einer
+> Änderung ist ein Rebuild nötig, weil `VITE_*` Build-Zeit-Werte sind.
+
+Prüfen, was tatsächlich im ausgelieferten Bundle steht:
 
 ```bash
 ssh elmarhepp '
   cd /var/www/finanzen &&
-  git init -b main &&
-  git remote add origin https://github.com/elmohuppi-stack/finanzen.git &&
-  git fetch origin main &&
-  git reset --hard origin/main &&
-  git status --short
+  docker compose -f docker-compose.prod.yml exec -T web grep -rl "in .env.local setzen" dist
 '
 ```
 
-`git reset --hard` überschreibt nur versionierte Dateien. `backend/.env.production`
-ist nicht im Repo und bleibt unangetastet. Was `git status` danach als untracked
-meldet, sind Reste des alten rsync-Stands — vor dem Aufräumen mit
-`git clean -nd` erst anschauen, `git clean -fd` löscht sonst auch die
-Produktions-Env.
+Findet der Befehl nur `legal-*.js`, ist alles in Ordnung — dort stehen die
+Platzhalter als ungenutzter Fallback. Erscheint der Text im gerenderten
+Impressum, fehlen die Werte im Build.
+
+### Historie: Umstellung von rsync auf git
+
+Bis zum 9. August 2026 wurde `/var/www/finanzen` per `rsync` gepflegt. Seitdem ist
+es ein Checkout auf `main`. Zwei Dinge sind dabei aufgefallen und gelten für einen
+Neuaufbau weiter:
+
+- Das Verzeichnis gehörte durch `rsync -a` der lokalen UID `501:staff`, worauf git
+  mit *dubious ownership* abbricht. Gelöst über
+  `git config --global --add safe.directory /var/www/finanzen` — dieselbe Lösung
+  nutzt der Server für zwei weitere Apps. Sauberer wäre `chown -R root:root`, wie
+  bei knora.
+- Der erste Deploy lief mit `SKIP_BACKUP=1`, weil der laufende Container den Befehl
+  `db:backup` noch nicht kannte. Die Sicherung wurde vorher von Hand gezogen. Ab
+  dem zweiten Deploy ist das nicht mehr nötig.
 
 > `frontend/.env.production` **ist** versioniert (nur die API-URL steht darin) und
 > wird beim Pull überschrieben. Nicht versionierte Werte wie `VITE_LEGAL_*` gehören
@@ -229,12 +255,12 @@ Server dauerhaft auf einem losgelösten Stand.
 ## Rechtliche Angaben im Frontend
 
 `Impressum` und `Datenschutz` lesen ihre Kontaktdaten aus `VITE_LEGAL_*`. Die Werte
-sind Build-Zeit-Variablen, gehören also **vor** den Container-Build gesetzt und
-nicht ins Repo:
+stehen seit dem 9. August in `/var/www/finanzen/frontend/.env.production.local`
+(`chmod 600`) und gehören nicht ins Repo. Ändern heißt: Datei anpassen, dann
+`make deploy` — der Rebuild ist Pflicht, weil `VITE_*` beim Build eingesetzt wird.
 
 ```bash
 ssh elmarhepp 'cat >/var/www/finanzen/frontend/.env.production.local <<EOF
-VITE_API_BASE_URL=https://finanzen-api.elmarhepp.de
 VITE_LEGAL_NAME="<name>"
 VITE_LEGAL_EMAIL="<email>"
 VITE_LEGAL_ADDRESS_LINE_1="<strasse hausnummer>"
@@ -244,8 +270,13 @@ VITE_LEGAL_CONTENT_RESPONSIBLE="<name>"
 EOF'
 ```
 
-Vorlage: `frontend/.env.example`. Welche Angaben rechtlich verpflichtend sind, steht
-in [NEUE-APP.md, Abschnitt 3](../../optimize-hetzner/NEUE-APP.md#3-impressum-und-datenschutz).
+`VITE_API_BASE_URL` steht bereits in `frontend/.env.production` und gehört
+deshalb nicht in diese Datei — Vite mischt beide, doppelte Pflege führt nur zu
+widersprüchlichen Ständen. Lokal übernimmt `frontend/.env.local` dieselbe Rolle,
+Vorlage ist `frontend/.env.example`.
+
+Welche Angaben rechtlich verpflichtend sind, steht in
+[NEUE-APP.md, Abschnitt 3](../../optimize-hetzner/NEUE-APP.md#3-impressum-und-datenschutz).
 
 ---
 

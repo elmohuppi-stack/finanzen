@@ -18,7 +18,9 @@ Besonders wichtig:
 
 ## Aktueller Stand
 
-Bereits umgesetzt:
+**Live unter [finanzen.elmarhepp.de](https://finanzen.elmarhepp.de)** seit dem 9. August 2026.
+
+Umgesetzt:
 
 - Laravel-Backend mit API-Grundgerüst
 - Vue-Frontend mit Login und Import-Vorschau
@@ -47,41 +49,25 @@ Bereits umgesetzt:
 
 ---
 
-## MVP-Ziele
-
-Version 1 fokussiert auf:
-
-- Registrierung und Login
-- CSV-Import für `Giro`, `Visa` und `PayPal`
-- Dubletten-sicheren Import bei mehrfachen oder überlappenden Dateien
-- konsolidierte Umsatzliste mit Kategorien, Splits und Auswertungen
-- lokales Testen und späteres Deployment auf Hetzner-Produktion
-
-Nicht Teil von V1:
-
-- direkte DKB-API / PSD2-Integration
-- Mobile-App
-- OCR / Belegscan
-- KI-Kategorisierung
-- Budgetplanung
-
----
-
 ## Projektstruktur
 
 ```text
 backend/   Laravel API, Auth, Importlogik, Datenmodell
 frontend/  Vue 3 Frontend mit Dashboard und Import-Vorschau
 csv/       lokale Beispieldaten, nicht versioniert
-docs/      Architektur-, Planungs- und Übergabedokumentation
+deploy/    Sicherungs-Skript und cron-Eintrag für den Server
+docs/      fachliches Konzept und Deployment
+deploy.sh  Deployment und Betrieb
 ```
 
-Wichtige Dateien:
+Jede Frage hat genau ein Dokument:
 
-- `docs/plan.md` – fachlicher Projektplan
-- `docs/OWNER_GUIDE.md` – Projektkontext und nächste Schritte für dich
-- `docs/deployment.md` – Deploy- und Update-Ablauf für diese App
-- `AGENTS.md` – Arbeitskontext und Regeln für Copilot/Agenten
+| Frage | Dokument |
+|---|---|
+| Was kann die App, was kommt als Nächstes? | dieses `README.md` |
+| Was soll sie fachlich leisten, wie sind die Daten modelliert? | `docs/plan.md` |
+| Wie deploye und bediene ich sie? | `docs/deployment.md` |
+| Woran halte ich mich beim Ändern? | `AGENTS.md` |
 
 Die serverweiten Regeln – Portvergabe, Speicherbudget, Prüfschritte, Backup – stehen nicht in diesem Repo, sondern zentral in `~/workspace/optimize-hetzner`.
 
@@ -151,8 +137,9 @@ Wichtige Variablen:
 - `VITE_LEGAL_COUNTRY`
 - `VITE_LEGAL_CONTENT_RESPONSIBLE`
 
-Für lokal empfiehlt sich `frontend/.env.local` als nicht versionierte Datei. Als Vorlage dient `frontend/.env.example`.
-Für Produktion sollten die Werte in einer nicht eingecheckten Build-Umgebung oder z. B. in `frontend/.env.production.local` gesetzt werden.
+Lokal gehören die Werte in `frontend/.env.local`, in Produktion in `frontend/.env.production.local` auf dem Server. Vorlage ist `frontend/.env.example`, beide Dateien sind nicht versioniert.
+
+> `frontend/.dockerignore` schließt `.env.local` aus – für den Produktions-Build ist deshalb **nur** `.env.production.local` wirksam. Steht dort nichts, zeigt das Impressum Platzhalter. Und weil `VITE_*` beim Build eingesetzt wird, braucht jede Änderung einen Rebuild.
 
 ---
 
@@ -170,6 +157,10 @@ Für Produktion sollten die Werte in einer nicht eingecheckten Build-Umgebung od
 - `make migrate-fresh` – setzt die DB zurück und migriert neu
 - `make seed` – lädt Seed-Daten
 - `make cash-sync` – gleicht die Bargeld-Gegenbuchungen ab
+- `make db-backup` – sichert die lokale SQLite-Datei
+- `make deploy` – testet, baut auf dem Server, migriert, verifiziert
+- `make deploy-status` – Container und Endpunkte auf dem Server
+- `make deploy-backup` – sichert die Live-Datenbank
 - `make test` – führt Backend-Tests und Frontend-Build-Check aus
 - `make check` – prüft den lokalen Health-Endpoint
 - `make build` – baut das Frontend für Produktion
@@ -212,22 +203,21 @@ Beispiele:
 
 ## Deployment
 
-Die App läuft auf dem Hetzner-Server `helsinki-80gb` hinter Host-`nginx`, je ein Container für Frontend und API, TLS via `certbot`. Ausgerollt wird per `git pull` auf dem Server:
+Die App läuft auf dem Hetzner-Server `helsinki-80gb` hinter Host-`nginx`, je ein Container für Frontend und API, TLS via `certbot`, Daten in SQLite. Ausgerollt wird per `git pull` auf dem Server:
 
 ```bash
-make test
 git push origin main
-ssh elmarhepp 'cd /var/www/finanzen && git pull origin main && docker compose -f docker-compose.prod.yml up -d --build'
+make deploy
 ```
+
+`deploy.sh` prüft sauberen Working Tree, gepushten Stand und `make test`, sichert dann die Live-Datenbank, zieht und baut auf dem Server, migriert und verifiziert beide Endpunkte. Zusätzlich sichert der Server die Datenbank nächtlich um 3:45 mit 14 Tagen Aufbewahrung.
 
 Domains:
 
 - `finanzen.elmarhepp.de` (Port `3021`)
 - `finanzen-api.elmarhepp.de` (Port `3022`)
 
-Bequemer ist `make deploy`: prüft sauberen Working Tree, gepushten Stand und Tests, sichert die Live-Datenbank, baut auf dem Server, migriert und verifiziert die Endpunkte. Die Datenbank wird zusätzlich nächtlich gesichert (`./deploy.sh install-cron`, 14 Tage).
-
-Der vollständige Ablauf inklusive Restore und Rollback steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/optimize-hetzner`.
+Der vollständige Ablauf inklusive Restore, Rollback und der Konfiguration auf dem Server steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/optimize-hetzner`.
 
 ---
 
@@ -241,8 +231,8 @@ Der vollständige Ablauf inklusive Restore und Rollback steht in `docs/deploymen
 
 ### Als Nächstes
 
-1. Rechtstexte final prüfen und den öffentlichen Livegang sauber wieder aktivieren
-2. Budgetplanung und Sparziele auf Basis der vorhandenen Auswertungen ergänzen
+1. Budgetplanung und Sparziele auf Basis der vorhandenen Auswertungen ergänzen
+2. Kassensturz-Buchung für das Bargeldkonto, wenn der Bestand auseinanderläuft
 3. Regelvorschläge und Bulk-Kategorisierung weiter verfeinern
 4. Vermögenswerte wie Aktien / Gold ergänzen
 5. DKB-/PSD2-Integration vorbereiten
@@ -255,6 +245,6 @@ Der vollständige Ablauf inklusive Restore und Rollback steht in `docs/deploymen
 
 ---
 
-## Planung
+## Fachliches Konzept
 
-Der aktuelle fachliche Projektplan liegt in `docs/plan.md`.
+Datenmodell, Import-Regeln, Kategorienkatalog und die Sonderlogik für Visa, PayPal, Splits und Bargeld stehen in `docs/plan.md`.
