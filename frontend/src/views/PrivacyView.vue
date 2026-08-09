@@ -10,10 +10,17 @@ import { legalContact } from '@/lib/legal'
       <p>
         Diese Datenschutzerklärung beschreibt die wesentlichen Verarbeitungen in
         <strong>Finanzcockpit</strong>, einschließlich der eingesetzten cookielosen
-        Reichweitenmessung mit Umami. Bitte prüfe die Inhalte vor einem öffentlichen Livegang und
-        ergänze ggf. fehlende organisatorische Details.
+        Reichweitenmessung mit Umami.
       </p>
-      <p class="meta">Stand: 10. Mai 2026</p>
+      <p>
+        Was für alle Anwendungen auf demselben Server gleich ist — Aufbewahrung der
+        Server-Logdaten, Hosting durch Hetzner als Auftragsverarbeiter und die
+        TLS-Verschlüsselung — steht in der
+        <a href="https://elmarhepp.de/datenschutz" rel="noopener"
+          >gemeinsamen Datenschutzerklärung</a
+        >. Beides zusammen ergibt das vollständige Bild.
+      </p>
+      <p class="meta">Stand: 9. August 2026</p>
     </article>
 
     <article class="card">
@@ -113,8 +120,13 @@ import { legalContact } from '@/lib/legal'
       <h3>7. Reichweitenmessung mit Umami</h3>
       <p>
         Zur datensparsamen Analyse der Nutzung der Website wird der Webanalyse-Dienst
-        <strong>Umami</strong> eingesetzt. Anbieter des eingesetzten Dienstes ist
-        <strong>Umami Software, Inc.</strong>.
+        <strong>Umami</strong> eingesetzt — und zwar die
+        <strong>selbst betriebene Instanz</strong> unter
+        <a href="https://umami.elmarhepp.de/" rel="noopener">umami.elmarhepp.de</a>, die auf
+        demselben Server läuft wie diese Anwendung. Die Daten verlassen diesen Server nicht.
+        Es ist <strong>kein externer Anbieter</strong>, kein Auftragsverarbeiter und kein
+        Drittlandtransfer beteiligt; Betreiber der Anwendung und Betreiber der Messung sind
+        dieselbe Person.
       </p>
       <p>
         Beim Aufruf der Anwendung werden dafür insbesondere gekürzte bzw. gehashte technische
@@ -126,9 +138,7 @@ import { legalContact } from '@/lib/legal'
       <p>
         Die Verarbeitung erfolgt auf Grundlage von <strong>Art. 6 Abs. 1 lit. f DSGVO</strong>
         aufgrund des berechtigten Interesses an einer datensparsamen Reichweitenmessung und der
-        Verbesserung des Angebots. Weitere Informationen zur Datenverarbeitung durch Umami finden
-        sich unter
-        <a href="https://umami.is/privacy" target="_blank" rel="noreferrer">umami.is/privacy</a>.
+        Verbesserung des Angebots.
       </p>
     </article>
 

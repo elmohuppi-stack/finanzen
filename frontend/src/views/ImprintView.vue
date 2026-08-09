@@ -8,8 +8,9 @@ import { legalContact } from '@/lib/legal'
       <p class="eyebrow">Impressum</p>
       <h2>Anbieterkennzeichnung nach deutschem Recht</h2>
       <p>
-        Diese Seite ist als Grundlage für die Pflichtangaben nach <strong>§ 5 DDG</strong> gedacht.
-        Bitte prüfe und ergänze die markierten Angaben vor einem öffentlichen Livegang.
+        Pflichtangaben nach <strong>§ 5 DDG</strong>. Dieselben Angaben gelten für alle
+        Anwendungen unter elmarhepp.de und stehen dort gesammelt im
+        <a href="https://elmarhepp.de/impressum" rel="noopener">gemeinsamen Impressum</a>.
       </p>
     </article>
 
