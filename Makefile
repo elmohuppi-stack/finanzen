@@ -8,7 +8,7 @@ FRONTEND_URL := http://127.0.0.1:5173
 BACKEND_PORT := 8000
 FRONTEND_PORT := 5173
 
-.PHONY: help install setup backend-install frontend-install start start-backend start-frontend stop stop-backend stop-frontend restart restart-backend restart-frontend dev dev-backend dev-frontend build build-backend build-frontend migrate migrate-fresh seed cash-sync test test-backend test-frontend check up down restart-docker logs backend-shell frontend-shell open
+.PHONY: help install setup backend-install frontend-install start start-backend start-frontend stop stop-backend stop-frontend restart restart-backend restart-frontend dev dev-backend dev-frontend build build-backend build-frontend migrate migrate-fresh seed cash-sync db-backup deploy deploy-status deploy-backup test test-backend test-frontend check up down restart-docker logs backend-shell frontend-shell open
 
 help:
 	@echo "Available targets:"
@@ -47,6 +47,12 @@ help:
 	@echo "  make migrate-fresh   php artisan migrate:fresh"
 	@echo "  make seed            php artisan db:seed"
 	@echo "  make cash-sync       Bargeld-Gegenbuchungen abgleichen"
+	@echo "  make db-backup       lokale SQLite-Datei sichern"
+	@echo ""
+	@echo "── Deployment ──"
+	@echo "  make deploy          testen, pushen, auf dem Server bauen, verifizieren"
+	@echo "  make deploy-status   Container und Endpunkte auf dem Server"
+	@echo "  make deploy-backup   Live-Datenbank sichern"
 	@echo ""
 	@echo "── Other ──"
 	@echo "  make check           curl backend health endpoint"
@@ -128,6 +134,9 @@ seed:
 cash-sync:
 	cd $(BACKEND_DIR) && php artisan cash:sync-mirrors
 
+db-backup:
+	cd $(BACKEND_DIR) && php artisan db:backup
+
 test: test-backend test-frontend
 
 test-backend:
@@ -135,6 +144,15 @@ test-backend:
 
 test-frontend:
 	cd $(FRONTEND_DIR) && npm run build
+
+deploy:
+	./deploy.sh
+
+deploy-status:
+	./deploy.sh status
+
+deploy-backup:
+	./deploy.sh backup
 
 check:
 	@curl -fsS $(BACKEND_URL)/api/health && echo

@@ -35,32 +35,42 @@ betrifft sie nicht.
 ## Update deployen
 
 ```bash
-# 1. lokal prüfen
-make test
-
-# 2. committen und pushen
 git add . && git commit -m "<beschreibung>" && git push origin main
-
-# 3. auf dem Server ziehen und neu bauen
-ssh elmarhepp '
-  cd /var/www/finanzen &&
-  git pull origin main &&
-  docker compose -f docker-compose.prod.yml up -d --build
-'
-
-# 4. prüfen
-curl -I https://finanzen.elmarhepp.de/
-curl -i https://finanzen-api.elmarhepp.de/api/health
+make deploy          # oder ./deploy.sh
 ```
 
-Migrationen laufen **nicht** automatisch mit. Wenn der Stand welche mitbringt:
+`deploy.sh` macht der Reihe nach: Working Tree sauber? Stand gepusht? `make test`
+grün? Danach Live-Datenbank sichern, auf dem Server `git pull` und Rebuild,
+`php artisan migrate --force`, und zum Schluss beide Endpunkte prüfen. Bricht ein
+Schritt ab, passiert nichts Weiteres.
+
+Weitere Aktionen:
+
+```bash
+./deploy.sh status           # Container, Endpunkte, Stand auf dem Server
+./deploy.sh logs api         # Logs folgen
+./deploy.sh backup           # nur sichern
+./deploy.sh migrate          # nur Migrationen, mit vorheriger Sicherung
+./deploy.sh rollback <commit>
+```
+
+Ziel-Host und Branch lassen sich über `DEPLOY_HOST` und `DEPLOY_BRANCH`
+überschreiben.
+
+### Von Hand, ohne Skript
 
 ```bash
 ssh elmarhepp '
   cd /var/www/finanzen &&
+  git pull origin main &&
+  docker compose -f docker-compose.prod.yml up -d --build &&
   docker compose -f docker-compose.prod.yml exec -T api php artisan migrate --force
 '
 ```
+
+**`-f docker-compose.prod.yml` ist Pflicht.** Ohne die Angabe nimmt Compose die
+Dev-Datei `docker-compose.yml` — und die bringt einen eigenen Postgres und Mailpit
+mit, die auf dem Produktionsserver nichts zu suchen haben.
 
 Die weitergehenden Prüfschritte nach einem Deploy — Container-Status, Speicher,
 doppelte Netzwerk-Aliase — stehen zentral in
@@ -128,22 +138,29 @@ der Befehl ist idempotent und leert den Dashboard-Cache selbst.
 
 ## Datenbank sichern und zurückrollen
 
-Die SQLite-Datei liegt im Docker-Volume, nicht im Server-Verzeichnis — ein
-Verzeichnis-Rollback holt sie also **nicht** zurück. Vor jedem datenverändernden
-Eingriff:
+`php artisan db:backup` schreibt per `VACUUM INTO` einen konsistenten Stand nach
+`storage/database/backups/` — auch während die App schreibt — und behält die
+letzten zehn. `deploy.sh` ruft den Befehl vor jedem Deploy, jeder Migration und
+jedem Rollback selbst auf. Von Hand:
 
 ```bash
-# Pfad prüfen
+./deploy.sh backup
+make db-backup     # lokal
+```
+
+Die Sicherungen liegen im selben Volume wie die Datenbank und überstehen damit
+Rebuilds, aber keinen Plattenausfall. Eine Kopie herunterholen:
+
+```bash
 ssh elmarhepp '
   cd /var/www/finanzen &&
-  docker compose -f docker-compose.prod.yml exec -T api ls -la /app/storage/database
+  docker compose -f docker-compose.prod.yml exec -T api ls -1t /app/storage/database/backups
 '
 
-# sichern
 ssh elmarhepp '
   cd /var/www/finanzen &&
   docker compose -f docker-compose.prod.yml cp \
-    api:/app/storage/database/database.sqlite ./db-backup-$(date +%F-%H%M).sqlite
+    api:/app/storage/database/backups/<datei> ./
 '
 ```
 
@@ -152,14 +169,15 @@ Zurückspielen:
 ```bash
 ssh elmarhepp '
   cd /var/www/finanzen &&
-  docker compose -f docker-compose.prod.yml cp \
-    ./db-backup-<zeitstempel>.sqlite api:/app/storage/database/database.sqlite &&
+  docker compose -f docker-compose.prod.yml exec -T api \
+    cp /app/storage/database/backups/<datei> /app/storage/database/database.sqlite &&
   docker compose -f docker-compose.prod.yml restart api
 '
 ```
 
 Das tägliche `pg-shared`-Backup deckt diese App **nicht** ab — es sichert nur
-PostgreSQL. Gegen einen Totalausfall hilft das Hetzner-Image-Backup, siehe
+PostgreSQL. Off-site abgedeckt ist sie über das Hetzner-Image-Backup (7 Slots,
+ganze Platte), das aber nur den **ganzen Server** zurückrollt, siehe
 [DEPLOYMENT.md, Abschnitt 7](../../optimize-hetzner/DEPLOYMENT.md#7-backup-und-restore).
 
 ---
