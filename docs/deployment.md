@@ -1,77 +1,192 @@
-# Deployment auf Hetzner
+# Deployment: Finanzen
 
-Diese Datei beschreibt den **konkreten, aktuell funktionierenden Produktions-Deploy** fuer `Finanzen` auf dem bestehenden Hetzner-Multi-App-Server.
+Hier steht nur, was **für diese App** gilt. Alles Serverweite — Regeln, Portvergabe,
+Prüfschritte nach dem Deploy, Störungstabelle, Backup-Strategie — steht zentral in
+`~/workspace/optimize-hetzner` und wird hier verlinkt statt wiederholt:
 
-## Live-Setup
+| Dokument | Wofür |
+|---|---|
+| [DEPLOYMENT.md](../../optimize-hetzner/DEPLOYMENT.md) | Bedienung aller Apps, Prüfschritte nach jedem Deploy, Störungstabelle, Backup und Restore |
+| [ARCHITEKTUR.md](../../optimize-hetzner/ARCHITEKTUR.md) | Regeln mit Begründung: Ports, Speicherbudget, Datenhaltung, Anti-Patterns |
+| [NEUE-APP.md](../../optimize-hetzner/NEUE-APP.md) | Ablauf für eine neue App — löst die frühere Vorlage `hetzner-multi-app-template.md` ab |
 
-- **SSH-Zugang:** `ssh elmarhepp`
-- **Server-Pfad:** `/var/www/finanzen`
-- **Frontend:** `https://finanzen.elmarhepp.de`
-- **API:** `https://finanzen-api.elmarhepp.de`
-- **Frontend-Port intern:** `3021`
-- **API-Port intern:** `3022`
-- **Nginx-Site:** `/etc/nginx/sites-available/finanzen.conf`
+## Eckdaten
 
-> Wichtig: Auf dem Server laufen bereits andere Apps. `Finanzen` darf nur seine eigenen Ports, Domains und Dateien verwenden.
+| | |
+|---|---|
+| Frontend | `https://finanzen.elmarhepp.de`, Port `3021` |
+| API | `https://finanzen-api.elmarhepp.de`, Port `3022` |
+| Server-Verzeichnis | `/var/www/finanzen` |
+| Compose-Datei | `docker-compose.prod.yml` (**Pflichtangabe**, `docker-compose.yml` ist die Dev-Variante) |
+| Deploy-Weg | `git pull` auf dem Server |
+| Persistenz | SQLite im Volume `finanzen_database`, gemountet unter `/app/storage/database` |
+| Konfiguration | `backend/.env.production` und `frontend/.env.production` per `env_file` |
+| SSH | `ssh elmarhepp` |
 
-## Relevante Dateien im Repo
+Die App hängt **nicht** an `pg-shared`. Ein Neustart der gemeinsamen Datenbank
+betrifft sie nicht.
 
-- `docker-compose.prod.yml` – Produktions-Compose fuer Web + API
-- `backend/Dockerfile` – Laravel-Container
-- `frontend/Dockerfile` – Vue-Container
-- `.env.example` – Root-Werte fuer Domain + Ports
-- `backend/.env.production.example` – Vorlage fuer das Backend in Produktion
-- `frontend/.env.example` – Vorlage fuer API-URL und rechtliche Frontend-Angaben
-- `frontend/.env.production` bzw. besser `frontend/.env.production.local` – Produktionswerte fuer API und `VITE_LEGAL_*`
-
----
-
-## Einmaliges Setup auf dem Server
-
-Der initiale Rollout ist bereits erledigt. Fuer neue Server oder Neuaufbau gilt dieser Ablauf:
-
-1. DNS muss auf den Hetzner-Server zeigen
-   - `finanzen.elmarhepp.de`
-   - `finanzen-api.elmarhepp.de`
-2. Zielverzeichnis anlegen:
-
-```bash
-ssh elmarhepp 'mkdir -p /var/www/finanzen'
-```
-
-3. Root-Env auf dem Server anlegen:
-
-```bash
-cat >/var/www/finanzen/.env <<'EOF'
-APP_DOMAIN=finanzen.elmarhepp.de
-API_DOMAIN=finanzen-api.elmarhepp.de
-WEB_PORT=3021
-API_PORT=3022
-EOF
-```
-
-4. Backend-Env auf dem Server anlegen (aus `backend/.env.production.example` ableiten)
-5. Nginx-Site einrichten und Certbot ausfuehren
+> **Keine Root-`.env` im Server-Verzeichnis.** Die Ports fallen bewusst auf die
+> Defaults `3021`/`3022` aus der Compose-Datei zurück. Kommandos deshalb **ohne**
+> `--env-file` ausführen — mit der Option bricht Compose ab, weil die Datei fehlt.
 
 ---
 
-## Standard-Update-Workflow
-
-Das ist der empfohlene Ablauf fuer **spaetere Updates**.
-
-### 1. Lokal pruefen
+## Update deployen
 
 ```bash
-cd /Users/elmarhepp/workspace/finanzen/frontend && npm run build
-cd /Users/elmarhepp/workspace/finanzen/backend && php artisan test
+# 1. lokal prüfen
+make test
+
+# 2. committen und pushen
+git add . && git commit -m "<beschreibung>" && git push origin main
+
+# 3. auf dem Server ziehen und neu bauen
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  git pull origin main &&
+  docker compose -f docker-compose.prod.yml up -d --build
+'
+
+# 4. prüfen
+curl -I https://finanzen.elmarhepp.de/
+curl -i https://finanzen-api.elmarhepp.de/api/health
 ```
 
-### 1b. Rechtliche Frontend-Werte fuer Produktion setzen
-
-Vor einem oeffentlichen Relaunch sollten die Anbieterangaben fuer `Impressum` und `Datenschutz` in einer nicht versionierten Produktionsdatei oder direkt in der Build-Umgebung gesetzt werden, z. B.:
+Migrationen laufen **nicht** automatisch mit. Wenn der Stand welche mitbringt:
 
 ```bash
-cat >/var/www/finanzen/frontend/.env.production.local <<'EOF'
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  docker compose -f docker-compose.prod.yml exec -T api php artisan migrate --force
+'
+```
+
+Die weitergehenden Prüfschritte nach einem Deploy — Container-Status, Speicher,
+doppelte Netzwerk-Aliase — stehen zentral in
+[DEPLOYMENT.md, Abschnitt 4](../../optimize-hetzner/DEPLOYMENT.md#4-nach-jedem-deploy-prüfen).
+
+### Einmalig: Server-Verzeichnis von rsync auf git umstellen
+
+Bis August 2026 wurde `/var/www/finanzen` per `rsync` gepflegt und ist deshalb noch
+kein Git-Checkout. Die Umstellung passiert einmal:
+
+```bash
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  git init -b main &&
+  git remote add origin https://github.com/elmohuppi-stack/finanzen.git &&
+  git fetch origin main &&
+  git reset --hard origin/main &&
+  git status --short
+'
+```
+
+`git reset --hard` überschreibt nur versionierte Dateien. `backend/.env.production`
+ist nicht im Repo und bleibt unangetastet. Was `git status` danach als untracked
+meldet, sind Reste des alten rsync-Stands — vor dem Aufräumen mit
+`git clean -nd` erst anschauen, `git clean -fd` löscht sonst auch die
+Produktions-Env.
+
+> `frontend/.env.production` **ist** versioniert (nur die API-URL steht darin) und
+> wird beim Pull überschrieben. Nicht versionierte Werte wie `VITE_LEGAL_*` gehören
+> deshalb in `frontend/.env.production.local`.
+
+---
+
+## Artisan-Befehle in Produktion
+
+Alle Befehle laufen im `api`-Container:
+
+```bash
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  docker compose -f docker-compose.prod.yml exec -T api php artisan <befehl>
+'
+```
+
+### Bargeld-Gegenbuchungen abgleichen
+
+Einmalig nach dem Rollout des Bargeldkontos. Der Befehl schreibt in die
+Live-Datenbank — **vorher sichern** (siehe unten).
+
+```bash
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  docker compose -f docker-compose.prod.yml exec -T api \
+    php artisan cash:sync-mirrors --since=2026-01-01
+'
+```
+
+Der Stichtag wird im Bargeldkonto gespeichert und gilt auch für alle späteren
+automatischen Gegenbuchungen. Ohne `--since` würden **alle** historischen
+Abhebungen gespiegelt und der Kontostand um Beträge steigen, die längst
+ausgegeben und nie erfasst wurden. Spätere Läufe brauchen die Option nicht mehr;
+der Befehl ist idempotent und leert den Dashboard-Cache selbst.
+
+---
+
+## Datenbank sichern und zurückrollen
+
+Die SQLite-Datei liegt im Docker-Volume, nicht im Server-Verzeichnis — ein
+Verzeichnis-Rollback holt sie also **nicht** zurück. Vor jedem datenverändernden
+Eingriff:
+
+```bash
+# Pfad prüfen
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  docker compose -f docker-compose.prod.yml exec -T api ls -la /app/storage/database
+'
+
+# sichern
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  docker compose -f docker-compose.prod.yml cp \
+    api:/app/storage/database/database.sqlite ./db-backup-$(date +%F-%H%M).sqlite
+'
+```
+
+Zurückspielen:
+
+```bash
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  docker compose -f docker-compose.prod.yml cp \
+    ./db-backup-<zeitstempel>.sqlite api:/app/storage/database/database.sqlite &&
+  docker compose -f docker-compose.prod.yml restart api
+'
+```
+
+Das tägliche `pg-shared`-Backup deckt diese App **nicht** ab — es sichert nur
+PostgreSQL. Gegen einen Totalausfall hilft das Hetzner-Image-Backup, siehe
+[DEPLOYMENT.md, Abschnitt 7](../../optimize-hetzner/DEPLOYMENT.md#7-backup-und-restore).
+
+---
+
+## Code-Rollback
+
+```bash
+ssh elmarhepp '
+  cd /var/www/finanzen &&
+  git checkout <commit> &&
+  docker compose -f docker-compose.prod.yml up -d --build
+'
+```
+
+Danach wieder auf `main` zurück (`git checkout main && git pull`), sonst läuft der
+Server dauerhaft auf einem losgelösten Stand.
+
+---
+
+## Rechtliche Angaben im Frontend
+
+`Impressum` und `Datenschutz` lesen ihre Kontaktdaten aus `VITE_LEGAL_*`. Die Werte
+sind Build-Zeit-Variablen, gehören also **vor** den Container-Build gesetzt und
+nicht ins Repo:
+
+```bash
+ssh elmarhepp 'cat >/var/www/finanzen/frontend/.env.production.local <<EOF
 VITE_API_BASE_URL=https://finanzen-api.elmarhepp.de
 VITE_LEGAL_NAME="<name>"
 VITE_LEGAL_EMAIL="<email>"
@@ -79,145 +194,17 @@ VITE_LEGAL_ADDRESS_LINE_1="<strasse hausnummer>"
 VITE_LEGAL_ADDRESS_LINE_2="<plz ort>"
 VITE_LEGAL_COUNTRY="Deutschland"
 VITE_LEGAL_CONTENT_RESPONSIBLE="<name>"
-EOF
+EOF'
 ```
 
-### 2. Aenderungen committen
-
-```bash
-cd /Users/elmarhepp/workspace/finanzen
-git status
-git add .
-git commit -m "<beschreibung>"
-```
-
-### 3. Code auf den Server synchronisieren
-
-```bash
-rsync -az --delete \
-  --exclude '.git/' \
-  --exclude 'csv/' \
-  --exclude 'backend/vendor/' \
-  --exclude 'backend/.env' \
-  --exclude 'backend/.env.production' \
-  --exclude 'backend/database/database.sqlite' \
-  --exclude 'backend/storage/logs/' \
-  --exclude 'backend/storage/framework/' \
-  --exclude 'frontend/node_modules/' \
-  --exclude 'frontend/dist/' \
-  /Users/elmarhepp/workspace/finanzen/ \
-  elmarhepp:/var/www/finanzen/
-```
-
-### 4. Container neu bauen und starten
-
-```bash
-ssh elmarhepp '
-  cd /var/www/finanzen && \
-  docker compose --env-file .env -f docker-compose.prod.yml up -d --build
-'
-```
-
-### 5. Ergebnis verifizieren
-
-```bash
-ssh elmarhepp '
-  cd /var/www/finanzen && \
-  docker compose --env-file .env -f docker-compose.prod.yml ps
-'
-
-curl -I https://finanzen.elmarhepp.de/
-curl -I https://finanzen.elmarhepp.de/impressum
-curl -I https://finanzen.elmarhepp.de/datenschutz
-curl -i https://finanzen-api.elmarhepp.de/api/health
-```
+Vorlage: `frontend/.env.example`. Welche Angaben rechtlich verpflichtend sind, steht
+in [NEUE-APP.md, Abschnitt 3](../../optimize-hetzner/NEUE-APP.md#3-impressum-und-datenschutz).
 
 ---
 
-## Copy/Paste fuer schnelle Deployments
-
-Wenn nur ein normales Update ausgerollt werden soll, reicht meistens genau das:
-
-```bash
-cd /Users/elmarhepp/workspace/finanzen/frontend && npm run build && \
-cd ../backend && php artisan test && \
-rsync -az --delete \
-  --exclude '.git/' \
-  --exclude 'csv/' \
-  --exclude 'backend/vendor/' \
-  --exclude 'backend/.env' \
-  --exclude 'backend/.env.production' \
-  --exclude 'backend/database/database.sqlite' \
-  --exclude 'backend/storage/logs/' \
-  --exclude 'backend/storage/framework/' \
-  --exclude 'frontend/node_modules/' \
-  --exclude 'frontend/dist/' \
-  /Users/elmarhepp/workspace/finanzen/ \
-  elmarhepp:/var/www/finanzen/ && \
-ssh elmarhepp 'cd /var/www/finanzen && docker compose --env-file .env -f docker-compose.prod.yml up -d --build' && \
-curl -I https://finanzen.elmarhepp.de/ && \
-curl -i https://finanzen-api.elmarhepp.de/api/health
-```
-
----
-
-## Logs und Diagnose
-
-### Container-Status
-
-```bash
-ssh elmarhepp 'cd /var/www/finanzen && docker compose --env-file .env -f docker-compose.prod.yml ps'
-```
-
-### API-Logs
-
-```bash
-ssh elmarhepp 'cd /var/www/finanzen && docker compose --env-file .env -f docker-compose.prod.yml logs -f api'
-```
-
-### Frontend-Logs
-
-```bash
-ssh elmarhepp 'cd /var/www/finanzen && docker compose --env-file .env -f docker-compose.prod.yml logs -f web'
-```
-
-### Nginx pruefen
-
-```bash
-ssh elmarhepp 'nginx -t && systemctl reload nginx'
-```
-
----
-
-## Rollback
-
-Falls ein Update schiefgeht:
-
-1. lokal auf den letzten funktionierenden Commit zurueckgehen
-2. denselben `rsync`- und `docker compose up -d --build`-Ablauf erneut ausfuehren
-
-Beispiel:
-
-```bash
-cd /Users/elmarhepp/workspace/finanzen
-git checkout <funktionierender-commit>
-# danach erneut deployen
-```
-
-> Da das Server-Verzeichnis aktuell per `rsync` gepflegt wird, ist der einfachste Rollback ebenfalls ein erneuter Sync eines bekannten guten lokalen Commits.
-
----
-
-## Sicherheits- und Serverregeln
+## Regeln für diese App
 
 - niemals echte CSV-Dateien deployen
 - niemals `backend/.env.production` committen
-- keine Ports anderer Apps wiederverwenden
-- keine bestehenden Nginx-Dateien anderer Projekte ueberschreiben
-- vor jedem Deploy lokal verifizieren
-
-Aktuell belegte Nachbar-Apps auf dem Server:
-
-- `benzin-preise` → `3001/3002`
-- `elmo-scanner` → `3011/3012`
-- `finanzen` → `3021/3022`
+- `-f docker-compose.prod.yml` ist bei jedem Compose-Kommando Pflicht
+- vor jedem Deploy lokal `make test`

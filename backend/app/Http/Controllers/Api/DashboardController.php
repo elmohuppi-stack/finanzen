@@ -256,6 +256,7 @@ class DashboardController extends Controller
                     'currency' => $transaction->currency,
                     'direction' => $transaction->direction,
                     'source_system' => $transaction->source_system,
+                    'account_id' => $transaction->account_id,
                     'account_name' => $transaction->account?->name,
                     'is_transfer' => $transaction->is_transfer,
                     'is_hidden_from_cashflow' => $transaction->is_hidden_from_cashflow,

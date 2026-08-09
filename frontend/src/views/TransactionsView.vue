@@ -50,6 +50,7 @@ interface DashboardResponse {
     currency: string
     direction: string
     source_system: string
+    account_id: number | null
     account_name: string | null
     is_transfer: boolean
     is_hidden_from_cashflow: boolean
@@ -77,6 +78,12 @@ interface DashboardResponse {
 
 type TransactionItem = DashboardResponse['transactions'][number]
 
+interface SavedTransaction {
+  id: number
+  account_id: number | null
+  booking_date: string | null
+}
+
 const authStore = useAuthStore()
 const dashboard = ref<DashboardResponse | null>(null)
 const loading = ref(false)
@@ -90,6 +97,20 @@ const selectedTransactionId = ref<number | null>(null)
 const transferFilter = ref<'all' | 'transfer' | 'linked' | 'group'>('all')
 const categoryDraft = ref('')
 const savingCategory = ref(false)
+const cashFormOpen = ref(false)
+const cashFormTransactionId = ref<number | null>(null)
+const cashFormSaving = ref(false)
+const cashFormDeleting = ref(false)
+const cashFormError = ref('')
+const cashForm = ref({
+  booking_date: new Date().toISOString().slice(0, 10),
+  amount: '',
+  entry_type: 'expense' as 'expense' | 'income',
+  counterparty_name: '',
+  description: '',
+  category_id: '',
+  account_id: '',
+})
 const defaultAccountInitialized = ref(false)
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let latestLoadRequestId = 0
@@ -114,6 +135,12 @@ const accounts = computed(() => {
 })
 const transactions = computed(() => dashboard.value?.transactions ?? [])
 const categories = computed(() => dashboard.value?.categories ?? [])
+const cashWalletAccount = computed(
+  () => accounts.value.find((account) => account.account_type === 'cash_wallet') ?? null,
+)
+const expenseCategories = computed(() =>
+  categories.value.filter((category) => category.category_type !== 'transfer'),
+)
 const displayedBalanceTotal = computed(() => {
   const relevantAccounts = selectedAccountId.value
     ? accounts.value.filter((account) => String(account.id) === selectedAccountId.value)
@@ -286,6 +313,10 @@ function formatSourceType(sourceType: string) {
       return 'DKB Visa'
     case 'paypal':
       return 'PayPal'
+    case 'manual':
+      return 'Manuell erfasst'
+    case 'cash_mirror':
+      return 'Gegenbuchung Bargeld'
     default:
       return sourceType
   }
@@ -608,6 +639,165 @@ async function saveCategory() {
   }
 }
 
+function isManualTransaction(transaction: TransactionItem | null) {
+  return transaction?.source_system === 'manual'
+}
+
+function resetCashForm() {
+  cashForm.value = {
+    booking_date: new Date().toISOString().slice(0, 10),
+    amount: '',
+    entry_type: 'expense',
+    counterparty_name: '',
+    description: '',
+    category_id: '',
+    account_id: cashWalletAccount.value ? String(cashWalletAccount.value.id) : '',
+  }
+}
+
+function openCashForm() {
+  cashFormTransactionId.value = null
+  cashFormError.value = ''
+  resetCashForm()
+  cashFormOpen.value = true
+}
+
+function openCashEditForm(transaction: TransactionItem) {
+  if (!isManualTransaction(transaction)) {
+    return
+  }
+
+  cashFormTransactionId.value = transaction.id
+  cashFormError.value = ''
+  cashForm.value = {
+    booking_date: transaction.booking_date ?? new Date().toISOString().slice(0, 10),
+    amount: Math.abs(Number(transaction.amount)).toFixed(2),
+    entry_type: Number(transaction.amount) >= 0 ? 'income' : 'expense',
+    counterparty_name: transaction.counterparty_name ?? '',
+    description: transaction.description ?? '',
+    category_id: transaction.category_id ? String(transaction.category_id) : '',
+    account_id: transaction.account_id ? String(transaction.account_id) : '',
+  }
+  cashFormOpen.value = true
+}
+
+function focusOnTransaction(transaction: SavedTransaction) {
+  transferFilter.value = 'all'
+
+  if (searchQuery.value) {
+    searchQuery.value = ''
+  }
+
+  if (
+    transaction.account_id &&
+    selectedAccountId.value &&
+    String(transaction.account_id) !== selectedAccountId.value
+  ) {
+    selectedAccountId.value = String(transaction.account_id)
+  }
+
+  if (viewMode.value === 'month' && transaction.booking_date) {
+    selectedMonth.value = transaction.booking_date.slice(0, 7)
+  }
+}
+
+function closeCashForm() {
+  cashFormOpen.value = false
+  cashFormTransactionId.value = null
+  cashFormError.value = ''
+}
+
+async function submitCashForm() {
+  if (!authStore.token) {
+    return
+  }
+
+  const amount = Number(cashForm.value.amount.replace(',', '.'))
+
+  if (!cashForm.value.counterparty_name.trim()) {
+    cashFormError.value = 'Bitte trage ein, wofür oder an wen gezahlt wurde.'
+    return
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    cashFormError.value = 'Bitte trage einen Betrag größer als 0 ein.'
+    return
+  }
+
+  cashFormSaving.value = true
+  cashFormError.value = ''
+
+  const payload: Record<string, unknown> = {
+    booking_date: cashForm.value.booking_date,
+    amount: amount.toFixed(2),
+    entry_type: cashForm.value.entry_type,
+    counterparty_name: cashForm.value.counterparty_name.trim(),
+    description: cashForm.value.description.trim() || null,
+  }
+
+  if (cashForm.value.account_id) {
+    payload.account_id = Number(cashForm.value.account_id)
+  }
+
+  const isEdit = cashFormTransactionId.value !== null
+
+  if (isEdit || cashForm.value.category_id) {
+    payload.category_id = cashForm.value.category_id ? Number(cashForm.value.category_id) : null
+  }
+
+  try {
+    const response = await apiFetch<{ transaction: SavedTransaction }>(
+      isEdit ? `/api/transactions/${cashFormTransactionId.value}` : '/api/transactions',
+      {
+        method: isEdit ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload),
+      },
+      authStore.token,
+    )
+
+    const savedTransaction = response.transaction
+
+    closeCashForm()
+    focusOnTransaction(savedTransaction)
+    await loadTransactions()
+    selectedTransactionId.value = savedTransaction.id
+  } catch (err) {
+    cashFormError.value =
+      err instanceof Error ? err.message : 'Buchung konnte nicht gespeichert werden.'
+  } finally {
+    cashFormSaving.value = false
+  }
+}
+
+async function deleteCashTransaction() {
+  if (!authStore.token || cashFormTransactionId.value === null) {
+    return
+  }
+
+  if (!window.confirm('Diese Buchung wirklich löschen?')) {
+    return
+  }
+
+  cashFormDeleting.value = true
+  cashFormError.value = ''
+
+  try {
+    await apiFetch(
+      `/api/transactions/${cashFormTransactionId.value}`,
+      { method: 'DELETE' },
+      authStore.token,
+    )
+
+    closeCashForm()
+    await loadTransactions()
+  } catch (err) {
+    cashFormError.value =
+      err instanceof Error ? err.message : 'Buchung konnte nicht gelöscht werden.'
+  } finally {
+    cashFormDeleting.value = false
+  }
+}
+
 watch(
   selectedTransaction,
   (transaction) => {
@@ -726,6 +916,9 @@ watch(
             @click="showAllView"
           >
             Alle
+          </button>
+          <button type="button" class="primary-button compact-button" @click="openCashForm">
+            + Bargeld erfassen
           </button>
         </div>
       </div>
@@ -859,6 +1052,7 @@ watch(
                     verknüpft ↗
                   </span>
                   <span v-else-if="transaction.is_transfer" class="chip chip-muted">Transfer</span>
+                  <span v-if="isManualTransaction(transaction)" class="chip chip-muted">Bar</span>
                 </div>
                 <strong :class="transaction.direction === 'credit' ? 'positive' : 'negative'">
                   {{ formatMoney(transaction.amount, transaction.currency) }}
@@ -962,6 +1156,22 @@ watch(
           </div>
         </section>
 
+        <section v-if="isManualTransaction(selectedTransaction)" class="detail-box">
+          <h3>Manuelle Buchung</h3>
+          <p class="detail-copy">
+            Diese Buchung hast du selbst erfasst und kannst sie jederzeit korrigieren oder löschen.
+          </p>
+          <div class="transfer-actions">
+            <button
+              type="button"
+              class="ghost-button"
+              @click="openCashEditForm(selectedTransaction)"
+            >
+              Bearbeiten
+            </button>
+          </div>
+        </section>
+
         <section class="detail-box">
           <h3>Kategorie</h3>
           <div class="category-editor">
@@ -994,6 +1204,123 @@ watch(
 
       <RouterLink class="text-link" to="/imports">Neue Datei importieren</RouterLink>
     </aside>
+
+    <div v-if="cashFormOpen" class="modal-overlay" @click.self="closeCashForm">
+      <form class="modal-card" @submit.prevent="submitCashForm">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Bargeld</p>
+            <h3>{{ cashFormTransactionId ? 'Buchung bearbeiten' : 'Bargeld-Buchung erfassen' }}</h3>
+          </div>
+          <button
+            type="button"
+            class="modal-close-button"
+            aria-label="Dialog schließen"
+            @click="closeCashForm"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p class="muted">
+          Bar bezahlte Ausgaben landen im Konto
+          <strong>{{ cashWalletAccount?.name || 'Bargeld' }}</strong> und fließen damit in
+          Auswertungen und Kategorien ein.
+        </p>
+
+        <div class="modal-form-grid">
+          <label class="modal-field">
+            <span>Datum</span>
+            <input v-model="cashForm.booking_date" type="date" required />
+          </label>
+
+          <label class="modal-field">
+            <span>Betrag</span>
+            <input
+              v-model="cashForm.amount"
+              type="text"
+              inputmode="decimal"
+              placeholder="z. B. 480,00"
+              required
+            />
+          </label>
+
+          <label class="modal-field">
+            <span>Art</span>
+            <select v-model="cashForm.entry_type">
+              <option value="expense">Ausgabe</option>
+              <option value="income">Einnahme</option>
+            </select>
+          </label>
+
+          <label class="modal-field">
+            <span>Kategorie</span>
+            <select v-model="cashForm.category_id">
+              <option value="">
+                {{ cashFormTransactionId ? 'Ohne Kategorie' : 'Automatisch über Regeln' }}
+              </option>
+              <option
+                v-for="category in expenseCategories"
+                :key="category.id"
+                :value="String(category.id)"
+              >
+                {{ category.name }}
+              </option>
+            </select>
+          </label>
+
+          <label class="modal-field modal-field--wide">
+            <span>Gegenstelle</span>
+            <input
+              v-model="cashForm.counterparty_name"
+              type="text"
+              maxlength="190"
+              placeholder="z. B. Autowerkstatt Müller"
+              required
+            />
+          </label>
+
+          <label class="modal-field modal-field--wide">
+            <span>Beschreibung</span>
+            <input
+              v-model="cashForm.description"
+              type="text"
+              maxlength="500"
+              placeholder="z. B. Bremsen vorne, bar bezahlt"
+            />
+          </label>
+
+          <label class="modal-field modal-field--wide">
+            <span>Konto</span>
+            <select v-model="cashForm.account_id">
+              <option value="">{{ cashWalletAccount?.name || 'Bargeld (wird angelegt)' }}</option>
+              <option v-for="account in accounts" :key="account.id" :value="String(account.id)">
+                {{ account.name }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <p v-if="cashFormError" class="error">{{ cashFormError }}</p>
+
+        <div class="modal-actions">
+          <button
+            v-if="cashFormTransactionId"
+            type="button"
+            class="ghost-button danger"
+            :disabled="cashFormDeleting"
+            @click="deleteCashTransaction"
+          >
+            {{ cashFormDeleting ? 'Löscht…' : 'Löschen' }}
+          </button>
+          <span class="modal-actions-spacer"></span>
+          <button type="button" class="ghost-button" @click="closeCashForm">Abbrechen</button>
+          <button type="submit" class="primary-button" :disabled="cashFormSaving">
+            {{ cashFormSaving ? 'Speichert…' : 'Buchung speichern' }}
+          </button>
+        </div>
+      </form>
+    </div>
   </section>
 </template>
 
@@ -1354,6 +1681,110 @@ dd {
 
 .positive {
   color: #059669;
+}
+
+.compact-button {
+  padding: 0.55rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.ghost-button.danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  z-index: 40;
+}
+
+.modal-card {
+  display: grid;
+  gap: 0.85rem;
+  width: min(100%, 620px);
+  max-height: min(92vh, 52rem);
+  overflow-y: auto;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-elevated);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-close-button {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+}
+
+.modal-form-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.modal-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.modal-field--wide {
+  grid-column: 1 / -1;
+}
+
+.modal-field span {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.modal-field input,
+.modal-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.7rem 0.8rem;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.modal-actions-spacer {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 640px) {
+  .modal-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (min-width: 1100px) {

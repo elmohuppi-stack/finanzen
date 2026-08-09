@@ -8,6 +8,8 @@ use Illuminate\Support\Str;
 
 class TransactionTransferService
 {
+    public function __construct(private readonly CashWalletService $cashWalletService) {}
+
     public function syncTransferState(
         Transaction $transaction,
         ?string $categoryType,
@@ -36,11 +38,13 @@ class TransactionTransferService
             $transaction->save();
         }
 
+        $mirrorChanged = $this->cashWalletService->syncMirrorFor($transaction);
+
         $linkChanged = $isTransfer
             ? $this->syncTransferLinks($transaction)
             : $this->clearTransferLinks($transaction);
 
-        return $transactionChanged || $linkChanged;
+        return $transactionChanged || $mirrorChanged || $linkChanged;
     }
 
     public function detectTransferKind(Transaction $transaction, ?string $matchedPattern = null): string

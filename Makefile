@@ -8,7 +8,7 @@ FRONTEND_URL := http://127.0.0.1:5173
 BACKEND_PORT := 8000
 FRONTEND_PORT := 5173
 
-.PHONY: help install setup backend-install frontend-install start start-backend start-frontend stop stop-backend stop-frontend restart restart-backend restart-frontend dev dev-backend dev-frontend build build-backend build-frontend migrate migrate-fresh seed test test-backend test-frontend check up down restart-docker logs backend-shell frontend-shell open
+.PHONY: help install setup backend-install frontend-install start start-backend start-frontend stop stop-backend stop-frontend restart restart-backend restart-frontend dev dev-backend dev-frontend build build-backend build-frontend migrate migrate-fresh seed cash-sync test test-backend test-frontend check up down restart-docker logs backend-shell frontend-shell open
 
 help:
 	@echo "Available targets:"
@@ -46,6 +46,7 @@ help:
 	@echo "  make migrate         php artisan migrate"
 	@echo "  make migrate-fresh   php artisan migrate:fresh"
 	@echo "  make seed            php artisan db:seed"
+	@echo "  make cash-sync       Bargeld-Gegenbuchungen abgleichen"
 	@echo ""
 	@echo "── Other ──"
 	@echo "  make check           curl backend health endpoint"
@@ -123,6 +124,9 @@ migrate-fresh:
 
 seed:
 	cd $(BACKEND_DIR) && php artisan db:seed
+
+cash-sync:
+	cd $(BACKEND_DIR) && php artisan cash:sync-mirrors
 
 test: test-backend test-frontend
 

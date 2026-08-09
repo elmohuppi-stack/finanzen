@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\FinanceImport;
+use App\Services\CashWalletService;
 use App\Services\DashboardCacheService;
 use App\Services\Import\CsvImportService;
 use Illuminate\Http\JsonResponse;
@@ -68,8 +69,11 @@ class ImportController extends Controller
         ]);
     }
 
-    public function store(Request $request, DashboardCacheService $dashboardCacheService): JsonResponse
-    {
+    public function store(
+        Request $request,
+        DashboardCacheService $dashboardCacheService,
+        CashWalletService $cashWalletService,
+    ): JsonResponse {
         $validated = $request->validate([
             'file' => ['required', 'file', 'mimes:csv,txt'],
         ]);
@@ -81,6 +85,7 @@ class ImportController extends Controller
             (string) $file->get(),
         );
 
+        $cashWalletService->syncMirrorsForUser($request->user());
         $dashboardCacheService->invalidateUser($request->user()->id);
 
         return response()->json([

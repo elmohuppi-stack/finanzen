@@ -261,6 +261,30 @@ class CategoryRuleService
     }
 
     /**
+     * Wendet den passenden Regelsatz auf eine einzelne Buchung an, z. B. nach manueller Erfassung.
+     */
+    public function applyRulesToTransaction(User $user, Transaction $transaction): ?CategoryRule
+    {
+        $rules = CategoryRule::query()
+            ->where('user_id', $user->id)
+            ->where('is_active', true)
+            ->with('category:id,name,category_type')
+            ->orderByDesc('priority')
+            ->orderBy('id')
+            ->get();
+
+        $matchingRule = $this->findMatchingRule($transaction, $rules);
+
+        if ($matchingRule === null) {
+            return null;
+        }
+
+        $this->applyRuleToTransaction($transaction, $matchingRule, $this->getPrimaryCategorySplit($transaction));
+
+        return $matchingRule;
+    }
+
+    /**
      * @param  array<int, array<string, string>>  $rows
      * @return array{imported_rules: int, updated_rules: int, skipped_rows: int}
      */

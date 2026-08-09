@@ -85,17 +85,15 @@ Seed-Login:
 
 ## Deployment und spaetere Updates
 
-Der produktive Rollout auf Hetzner ist jetzt dokumentiert in:
+Der produktive Rollout auf Hetzner steht mit allen Befehlen in `docs/deployment.md`.
+Die serverweiten Regeln fuer alle Apps liegen ausserhalb dieses Repos in `~/workspace/optimize-hetzner`.
 
-- `docs/deployment.md` – exakte Copy/Paste-Befehle fuer Updates, Verifikation und Rollback
-- `docs/hetzner-multi-app-template.md` – allgemeiner Multi-App-Standard fuer kuenftige Projekte
+Der Ablauf in Kurzform:
 
-Wenn du spaeter neue Versionen ausrollen willst, nutze am besten den dort beschriebenen Ablauf aus:
-
-1. lokal bauen und Tests laufen lassen
-2. vor dem öffentlichen Relaunch die `VITE_LEGAL_*`-Werte in der Produktions-Umgebung setzen
-3. per `rsync` nach `/var/www/finanzen` synchronisieren
-4. `docker compose --env-file .env -f docker-compose.prod.yml up -d --build`
+1. lokal bauen und Tests laufen lassen (`make test`)
+2. vor dem öffentlichen Relaunch die `VITE_LEGAL_*`-Werte in `frontend/.env.production.local` auf dem Server setzen
+3. committen und pushen
+4. `ssh elmarhepp 'cd /var/www/finanzen && git pull origin main && docker compose -f docker-compose.prod.yml up -d --build'`
 5. Frontend + API sowie `/impressum` und `/datenschutz` verifizieren
 
 ## Vor GitHub-Push prüfen

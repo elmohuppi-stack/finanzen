@@ -49,6 +49,7 @@ Key business goals:
 10. speed up analysis loading on live and keep month switching responsive ✅
 11. add legal pages and env-driven legal contact data before public relaunch ✅
 12. finalize legal wording and reactivate the public deployment 🔄
+13. add a `cash_wallet` account with manual bookings and automatic counter bookings for withdrawals ✅
 
 ## Local workflow
 
@@ -61,4 +62,5 @@ make check
 
 ## Deployment
 
-Production target is Hetzner using the conventions in `docs/hetzner-multi-app-template.md`.
+Production runs on the Hetzner server `helsinki-80gb`, deployed via `git pull` on the server.
+App-specific steps are in `docs/deployment.md`; the server-wide rules live outside this repo in `~/workspace/optimize-hetzner`.

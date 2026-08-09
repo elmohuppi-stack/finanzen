@@ -43,5 +43,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::patch('/category-rules/{ruleId}', [CategoryRuleController::class, 'update']);
     Route::delete('/category-rules/reset', [CategoryRuleController::class, 'reset']);
     Route::delete('/category-rules/{ruleId}', [CategoryRuleController::class, 'destroy']);
+    Route::post('/transactions', [TransactionController::class, 'store']);
     Route::patch('/transactions/{transaction}/category', [TransactionController::class, 'updateCategory']);
+    Route::patch('/transactions/{transaction}', [TransactionController::class, 'update']);
+    Route::delete('/transactions/{transaction}', [TransactionController::class, 'destroy']);
 });

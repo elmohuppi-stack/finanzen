@@ -89,6 +89,56 @@
     </article>
 
     <article class="card">
+      <h3>FAQ: Wie erfasse ich Bargeld-Ausgaben?</h3>
+      <div class="faq-item">
+        <p><strong>Wo trage ich eine bar bezahlte Rechnung ein?</strong></p>
+        <ol>
+          <li>
+            Öffne <strong>Buchungen</strong> und klicke auf <strong>+ Bargeld erfassen</strong>.
+          </li>
+          <li>
+            Trage Datum, Betrag, Gegenstelle und optional eine Beschreibung ein, z. B.
+            <code>Autowerkstatt Müller</code>.
+          </li>
+          <li>
+            Ohne Kategorieauswahl greifen deine <strong>Regeln</strong> automatisch, sonst wählst du
+            die Kategorie direkt aus.
+          </li>
+          <li>
+            Die Buchung landet im Konto <strong>Bargeld</strong> und zählt ab sofort in Dashboard
+            und Auswertung mit.
+          </li>
+        </ol>
+        <p><strong>Woher kommt das Geld in der Bargeldkasse?</strong></p>
+        <ul>
+          <li>
+            Sobald eine Abhebung am Girokonto als <strong>Transfer</strong> erkannt ist, entsteht
+            automatisch eine Gegenbuchung im Bargeldkonto.
+          </li>
+          <li>
+            Auch Bargeldauszahlungen beim Einkauf werden erkannt und als Teilbetrag in die Kasse
+            übertragen.
+          </li>
+          <li>
+            Beide Seiten sind als Transfer markiert und werden deshalb nicht als Ausgabe gezählt –
+            gezählt wird erst, wofür du das Bargeld ausgibst.
+          </li>
+        </ul>
+        <p><strong>Kann ich eine erfasste Buchung wieder ändern?</strong></p>
+        <ul>
+          <li>
+            Ja: Wähle die Buchung in der Liste aus und nutze im Detailbereich
+            <strong>Bearbeiten</strong>.
+          </li>
+          <li>
+            Importierte Umsätze bleiben bewusst unveränderlich – nur selbst erfasste Buchungen
+            lassen sich ändern oder löschen.
+          </li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="card">
       <h3>Projektstatus</h3>
       <ul>
         <li>✅ Authentifizierung mit Registrierung, Login und geschütztem Nutzerbereich</li>
@@ -100,6 +150,9 @@
           ✅ Dashboard, Buchungsliste und Auswertung inklusive Split-Buchungen und Transfer-Logik
         </li>
         <li>✅ Visa-/PayPal-Verknüpfungen und Budgetmonat-Logik für eine bessere Einordnung</li>
+        <li>
+          ✅ Bargeldkonto mit manueller Erfassung und automatischer Gegenbuchung bei Abhebungen
+        </li>
         <li>
           ✅ Performance-Optimierungen für die Auswertung sowie lokale Rechtstexte im Frontend
         </li>

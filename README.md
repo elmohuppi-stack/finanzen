@@ -34,6 +34,7 @@ Bereits umgesetzt:
 - Verknüpfungslogik für Visa- und PayPal-Transaktionen
 - Standard-Kategorienregeln für häufige Ausgaben (z.B. Amazon, Prime, Netflix)
 - Behandlung von Bargeldabhebungen und Cashback
+- Bargeldkonto: manuelle Bar-Buchungen, automatische Gegenbuchung bei Abhebungen, Stichtag für den Altbestand
 - Kompakte UI für Kategorie-Karten
 - Korrektur der Gegenparteien-Anzeige für eingehende Zahlungen
 - Dashboard mit KPIs, Tabellen und Charts
@@ -79,9 +80,10 @@ Wichtige Dateien:
 
 - `docs/plan.md` – fachlicher Projektplan
 - `docs/OWNER_GUIDE.md` – Projektkontext und nächste Schritte für dich
-- `docs/deployment.md` – konkreter Hetzner-Deploy- und Update-Ablauf fuer diese App
+- `docs/deployment.md` – Deploy- und Update-Ablauf für diese App
 - `AGENTS.md` – Arbeitskontext und Regeln für Copilot/Agenten
-- `docs/hetzner-multi-app-template.md` – allgemeiner Deploy-Standard für Produktion
+
+Die serverweiten Regeln – Portvergabe, Speicherbudget, Prüfschritte, Backup – stehen nicht in diesem Repo, sondern zentral in `~/workspace/optimize-hetzner`.
 
 ---
 
@@ -167,6 +169,7 @@ Für Produktion sollten die Werte in einer nicht eingecheckten Build-Umgebung od
 - `make migrate` – führt Migrationen aus
 - `make migrate-fresh` – setzt die DB zurück und migriert neu
 - `make seed` – lädt Seed-Daten
+- `make cash-sync` – gleicht die Bargeld-Gegenbuchungen ab
 - `make test` – führt Backend-Tests und Frontend-Build-Check aus
 - `make check` – prüft den lokalen Health-Endpoint
 - `make build` – baut das Frontend für Produktion
@@ -209,20 +212,20 @@ Beispiele:
 
 ## Deployment
 
-Das Produktions-Deployment folgt dem Standard in `docs/hetzner-multi-app-template.md`.
-Der **konkrete, funktionierende Ablauf fuer `Finanzen`** ist in `docs/deployment.md` dokumentiert.
+Die App läuft auf dem Hetzner-Server `helsinki-80gb` hinter Host-`nginx`, je ein Container für Frontend und API, TLS via `certbot`. Ausgerollt wird per `git pull` auf dem Server:
 
-Vorgesehene Domains:
+```bash
+make test
+git push origin main
+ssh elmarhepp 'cd /var/www/finanzen && git pull origin main && docker compose -f docker-compose.prod.yml up -d --build'
+```
 
-- `finanzen.elmarhepp.de`
-- `finanzen-api.elmarhepp.de`
+Domains:
 
-Zielumgebung:
+- `finanzen.elmarhepp.de` (Port `3021`)
+- `finanzen-api.elmarhepp.de` (Port `3022`)
 
-- Hetzner-Server mit Host-`nginx`
-- `docker compose` pro App
-- TLS via `certbot`
-- lokales Testen vor Deployment
+Der vollständige Ablauf inklusive Datenbank-Sicherung, Artisan-Befehlen in Produktion und Rollback steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/optimize-hetzner`.
 
 ---
 

@@ -60,13 +60,12 @@ Der erste produktive Fokus liegt auf:
 
 ### Deployment
 
-Gemäß `docs/hetzner-multi-app-template.md`:
+Ablauf und Befehle: `docs/deployment.md`. Serverweite Regeln: `~/workspace/optimize-hetzner`.
 
 - Frontend und API auf getrennten Subdomains
-- `docker compose`
-- Host-`nginx` als Reverse Proxy
-- HTTPS via `certbot`
-- lokal entwickeln, produktiv auf Hetzner deployen
+- `docker compose` mit `docker-compose.prod.yml`
+- Host-`nginx` als Reverse Proxy, HTTPS via `certbot`
+- lokal entwickeln, per `git pull` auf dem Server ausrollen
 
 ## Finanzquellen / Kontotypen
 
@@ -134,6 +133,17 @@ Beispiel:
 ### Bargeld-Wallet
 
 Bargeldabhebungen werden als Transfer in ein `cash_wallet` behandelt. Manuelle Bargeldausgaben reduzieren anschließend den Bargeldbestand.
+
+Umsetzung (`app/Services/CashWalletService.php`):
+
+- das Konto `Bargeld` (`account_type = cash_wallet`) wird pro Nutzer beim ersten Bedarf automatisch angelegt
+- zu jeder Bankbuchung mit `transfer_kind = cash_withdrawal` entsteht eine gespiegelte Gegenbuchung im Bargeldkonto (`source_system = cash_mirror`, `is_transfer`, `is_hidden_from_cashflow`)
+- Bargeldauszahlungen beim Einkauf (`metadata.cash_withdrawal_amount`) werden mit ihrem Teilbetrag gespiegelt
+- `TransactionTransferService` verknüpft beide Seiten anschließend über `transaction_links`
+- manuelle Buchungen laufen über `POST/PATCH/DELETE /api/transactions` mit `source_system = manual`; importierte Umsätze bleiben unveränderlich
+- `current_balance` und `metadata.balance_as_of` des Bargeldkontos werden nach jeder Änderung neu berechnet, damit Kontostand und Verlaufschart stimmen
+- das Bargeldkonto trägt einen Stichtag (`metadata.mirror_start_date`); ältere Abhebungen werden nicht gespiegelt, damit der Bestand nicht durch nicht erfasste Alt-Ausgaben aufgebläht wird
+- Bestandsdaten lassen sich einmalig nachziehen mit `php artisan cash:sync-mirrors --since=YYYY-MM-DD` (optional `--email=`, `--since=none` hebt den Stichtag auf)
 
 ## Dashboard-Vorschlag
 
