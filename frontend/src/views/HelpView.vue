@@ -19,7 +19,7 @@
         <li><strong>Buchungen:</strong> alle Umsätze durchsuchen, filtern und kategorisieren</li>
         <li><strong>Auswertung:</strong> Kategorien und Zeiträume analysieren</li>
         <li><strong>Import:</strong> CSV hochladen, prüfen und Import-Verlauf ansehen</li>
-        <li><strong>Hilfe:</strong> Funktionsbeschreibung, Hinweise und Projektstatus</li>
+        <li><strong>Hilfe:</strong> Funktionsbeschreibung und häufige Fragen</li>
       </ul>
     </article>
 
@@ -136,31 +136,6 @@
           </li>
         </ul>
       </div>
-    </article>
-
-    <article class="card">
-      <h3>Projektstatus</h3>
-      <ul>
-        <li>✅ Authentifizierung mit Registrierung, Login und geschütztem Nutzerbereich</li>
-        <li>✅ CSV-Import für DKB Giro, DKB Visa und PayPal mit duplikatsicherem Einlesen</li>
-        <li>
-          ✅ Kategorien, Regeln, manuelle Korrekturen sowie Standardregeln für häufige Ausgaben
-        </li>
-        <li>
-          ✅ Dashboard, Buchungsliste und Auswertung inklusive Split-Buchungen und Transfer-Logik
-        </li>
-        <li>✅ Visa-/PayPal-Verknüpfungen und Budgetmonat-Logik für eine bessere Einordnung</li>
-        <li>
-          ✅ Bargeldkonto mit manueller Erfassung und automatischer Gegenbuchung bei Abhebungen
-        </li>
-        <li>
-          ✅ Performance-Optimierungen für die Auswertung sowie lokale Rechtstexte im Frontend
-        </li>
-        <li>
-          🔜 Nächste Schritte: Rechtstexte final prüfen, Livegang wieder aktivieren und weitere
-          Automatisierung ausbauen
-        </li>
-      </ul>
     </article>
   </section>
 </template>
