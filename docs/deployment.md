@@ -17,7 +17,7 @@ Prüfschritte nach dem Deploy, Störungstabelle, Backup-Strategie — steht zent
 | Frontend | `https://finanzen.elmarhepp.de`, Port `3021` |
 | API | `https://finanzen-api.elmarhepp.de`, Port `3022` |
 | Server-Verzeichnis | `/var/www/finanzen` |
-| Compose-Datei | `docker-compose.prod.yml` (**Pflichtangabe**, `docker-compose.yml` ist die Dev-Variante) |
+| Compose-Datei | `docker-compose.prod.yml` (**Pflichtangabe**, `docker-compose.dev.yml` ist die Dev-Variante) |
 | Deploy-Weg | `make deploy` → `git pull` auf dem Server |
 | Live seit | Bargeldkonto und nächtliche Sicherung: 9. August 2026 |
 | Persistenz | SQLite im Volume `finanzen_database`, gemountet unter `/app/storage/database` |
@@ -69,9 +69,12 @@ ssh elmarhepp '
 '
 ```
 
-**`-f docker-compose.prod.yml` ist Pflicht.** Ohne die Angabe nimmt Compose die
-Dev-Datei `docker-compose.yml` — und die bringt einen eigenen Postgres und Mailpit
-mit, die auf dem Produktionsserver nichts zu suchen haben.
+**`-f docker-compose.prod.yml` ist Pflicht.** Ohne die Angabe sucht Compose eine
+Datei namens `docker-compose.yml` — und die gibt es seit dem 11. August 2026 nicht
+mehr: die Dev-Variante heißt jetzt `docker-compose.dev.yml`. Ein vergessenes `-f`
+bricht damit ab, statt einen eigenen Postgres und ein Mailpit neben der Produktion
+hochzuziehen. Vorher war genau das der Fall, und es ist der Grund für die
+Umbenennung.
 
 Die weitergehenden Prüfschritte nach einem Deploy — Container-Status, Speicher,
 doppelte Netzwerk-Aliase — stehen zentral in

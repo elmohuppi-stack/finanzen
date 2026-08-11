@@ -65,8 +65,10 @@ Production runs on the Hetzner server `helsinki-80gb`. Deploy with `make deploy`
 
 Two things that bit us and are easy to repeat:
 
-- `-f docker-compose.prod.yml` is mandatory on the server — without it Compose
-  picks the dev file with its own Postgres and Mailpit.
+- `-f docker-compose.prod.yml` is mandatory on the server. Until 2026-08-11 a
+  missing `-f` picked up the dev file with its own Postgres and Mailpit; the dev
+  file is now `docker-compose.dev.yml`, so a missing `-f` fails loudly instead.
+  Local dev goes through `make`, which passes `-f docker-compose.dev.yml`.
 - `VITE_*` values are baked in at build time and `frontend/.dockerignore` excludes
   `.env.local`. Production legal data lives in `frontend/.env.production.local` on
   the server, and changing it requires a rebuild.

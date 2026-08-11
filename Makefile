@@ -2,7 +2,11 @@ SHELL := /bin/zsh
 
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
-COMPOSE := docker compose
+# Die Dev-Datei heisst seit dem 11.08.2026 docker-compose.dev.yml und nicht mehr
+# docker-compose.yml. Grund: auf dem Server lag damit die Dev-Variante mit eigenem
+# Postgres und Mailpit unter dem Namen, den ein blankes `docker compose up` nimmt.
+# Deshalb steht das -f hier fest drin.
+COMPOSE := docker compose -f docker-compose.dev.yml
 BACKEND_URL := http://127.0.0.1:8000
 FRONTEND_URL := http://127.0.0.1:5173
 BACKEND_PORT := 8000
