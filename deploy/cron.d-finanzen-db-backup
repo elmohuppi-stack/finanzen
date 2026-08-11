@@ -6,5 +6,5 @@
 #
 # 3:45 statt 3:30, damit es sich nicht mit pg-shared-backup überschneidet.
 # Das Skript gibt nur im Fehlerfall etwas aus, Fehler gehen als Mail an root.
-MAILTO=root
+MAILTO=""
 45 3 * * * root /usr/local/sbin/finanzen-db-backup

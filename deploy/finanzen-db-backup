@@ -33,3 +33,15 @@ if ! output="$(docker compose -f "$COMPOSE_FILE" exec -T api php artisan db:back
     echo "Fehlt der Befehl db:backup, läuft im Container noch ein Stand vor dem 9. August — dann erst deployen." >&2
     exit 1
 fi
+
+# Totmann-Ping: meldet einem fremden Dienst, dass die Sicherung gelaufen ist.
+# Bleibt die Meldung aus, gibt der Dienst Alarm — vorher bedeutete Stille "in
+# Ordnung", und zwar auch dann, wenn seit einer Woche nichts mehr lief. MAILTO in
+# der cron.d-Datei erreicht auf diesem Host niemanden (kein MTA installiert).
+# Hintergrund und die anderen vier Skripte: optimize-hetzner, OFFENE-PROBLEME 35.
+#
+# Das `|| true` ist Absicht: ein fehlgeschlagener Ping darf eine gelungene
+# Sicherung nicht zum Fehler machen. Kommt er nicht an, alarmiert der Dienst.
+if [ -x /usr/local/sbin/deadman-ping ]; then
+    /usr/local/sbin/deadman-ping FINANZEN_BACKUP || true
+fi
