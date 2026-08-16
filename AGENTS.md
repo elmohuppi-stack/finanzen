@@ -58,10 +58,10 @@ make check
 
 ## Deployment
 
-Production runs on the Hetzner server `helsinki-80gb`. Deploy with `make deploy`
+Production runs on the netcup server `nuernberg-16gb`. Deploy with `make deploy`
 (tests, backup, `git pull`, rebuild, migrate, verify). App-specific steps are in
 `docs/deployment.md`; the server-wide rules live outside this repo in
-`~/workspace/optimize-hetzner`.
+`~/workspace/platform`.
 
 Two things that bit us and are easy to repeat:
 

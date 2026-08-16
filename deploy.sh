@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Deploy Finanzen auf helsinki-80gb
+# Deploy Finanzen auf nuernberg-16gb
 #
 #   ./deploy.sh              lokal prüfen, pullen, bauen, migrieren, verifizieren
 #   ./deploy.sh backup       SQLite-Datei aus dem Volume sichern
@@ -10,7 +10,7 @@
 #   ./deploy.sh install-cron nächtliche Sicherung auf dem Server einrichten
 #   ./deploy.sh rollback <commit>
 #
-# Serverweite Regeln: ~/workspace/optimize-hetzner
+# Serverweite Regeln: ~/workspace/platform
 # App-Details:        docs/deployment.md
 # ============================================================
 set -euo pipefail

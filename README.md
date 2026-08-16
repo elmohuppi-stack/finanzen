@@ -69,7 +69,7 @@ Jede Frage hat genau ein Dokument:
 | Wie deploye und bediene ich sie? | `docs/deployment.md` |
 | Woran halte ich mich beim Ändern? | `AGENTS.md` |
 
-Die serverweiten Regeln – Portvergabe, Speicherbudget, Prüfschritte, Backup – stehen nicht in diesem Repo, sondern zentral in `~/workspace/optimize-hetzner`.
+Die serverweiten Regeln – Portvergabe, Speicherbudget, Prüfschritte, Backup – stehen nicht in diesem Repo, sondern zentral in `~/workspace/platform`.
 
 ---
 
@@ -203,7 +203,7 @@ Beispiele:
 
 ## Deployment
 
-Die App läuft auf dem Hetzner-Server `helsinki-80gb` hinter Host-`nginx`, je ein Container für Frontend und API, TLS via `certbot`, Daten in SQLite. Ausgerollt wird per `git pull` auf dem Server:
+Die App läuft auf dem netcup-Server `nuernberg-16gb` hinter Host-`nginx`, je ein Container für Frontend und API, TLS via `certbot`, Daten in SQLite. Ausgerollt wird per `git pull` auf dem Server:
 
 ```bash
 git push origin main
@@ -217,7 +217,7 @@ Domains:
 - `finanzen.elmarhepp.de` (Port `3021`)
 - `finanzen-api.elmarhepp.de` (Port `3022`)
 
-Der vollständige Ablauf inklusive Restore, Rollback und der Konfiguration auf dem Server steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/optimize-hetzner`.
+Der vollständige Ablauf inklusive Restore, Rollback und der Konfiguration auf dem Server steht in `docs/deployment.md`. Die serverweiten Regeln und die Prüfschritte nach jedem Deploy stehen zentral in `~/workspace/platform`.
 
 ---
 

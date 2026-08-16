@@ -38,7 +38,7 @@ fi
 # Bleibt die Meldung aus, gibt der Dienst Alarm — vorher bedeutete Stille "in
 # Ordnung", und zwar auch dann, wenn seit einer Woche nichts mehr lief. MAILTO in
 # der cron.d-Datei erreicht auf diesem Host niemanden (kein MTA installiert).
-# Hintergrund und die anderen vier Skripte: optimize-hetzner, OFFENE-PROBLEME 35.
+# Hintergrund und die anderen vier Skripte: platform, OFFENE-PROBLEME 35.
 #
 # Das `|| true` ist Absicht: ein fehlgeschlagener Ping darf eine gelungene
 # Sicherung nicht zum Fehler machen. Kommt er nicht an, alarmiert der Dienst.

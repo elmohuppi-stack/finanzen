@@ -2,13 +2,13 @@
 
 Hier steht nur, was **für diese App** gilt. Alles Serverweite — Regeln, Portvergabe,
 Prüfschritte nach dem Deploy, Störungstabelle, Backup-Strategie — steht zentral in
-`~/workspace/optimize-hetzner` und wird hier verlinkt statt wiederholt:
+`~/workspace/platform` und wird hier verlinkt statt wiederholt:
 
 | Dokument | Wofür |
 |---|---|
-| [DEPLOYMENT.md](../../optimize-hetzner/DEPLOYMENT.md) | Bedienung aller Apps, Prüfschritte nach jedem Deploy, Störungstabelle, Backup und Restore |
-| [ARCHITEKTUR.md](../../optimize-hetzner/ARCHITEKTUR.md) | Regeln mit Begründung: Ports, Speicherbudget, Datenhaltung, Anti-Patterns |
-| [NEUE-APP.md](../../optimize-hetzner/NEUE-APP.md) | Ablauf für eine neue App — löst die frühere Vorlage `hetzner-multi-app-template.md` ab |
+| [DEPLOYMENT.md](../../platform/DEPLOYMENT.md) | Bedienung aller Apps, Prüfschritte nach jedem Deploy, Störungstabelle, Backup und Restore |
+| [ARCHITEKTUR.md](../../platform/ARCHITEKTUR.md) | Regeln mit Begründung: Ports, Speicherbudget, Datenhaltung, Anti-Patterns |
+| [NEUE-APP.md](../../platform/NEUE-APP.md) | Ablauf für eine neue App — löst die frühere Vorlage `hetzner-multi-app-template.md` ab |
 
 ## Eckdaten
 
@@ -78,7 +78,7 @@ Umbenennung.
 
 Die weitergehenden Prüfschritte nach einem Deploy — Container-Status, Speicher,
 doppelte Netzwerk-Aliase — stehen zentral in
-[DEPLOYMENT.md, Abschnitt 4](../../optimize-hetzner/DEPLOYMENT.md#4-nach-jedem-deploy-prüfen).
+[DEPLOYMENT.md, Abschnitt 4](../../platform/DEPLOYMENT.md#4-nach-jedem-deploy-prüfen).
 
 ### Konfiguration: welche Datei wo lebt
 
@@ -242,11 +242,17 @@ ssh elmarhepp '/usr/local/sbin/finanzen-db-backup && echo "Sicherung in Ordnung"
 | Schicht | Deckt ab | Granularität |
 |---|---|---|
 | `artisan db:backup`, nächtlich + vor jedem Deploy | die Datenbank dieser App | einzelner Stand, 14 Tage |
-| Hetzner-Image, 7 Slots | ganze Platte, off-site | nur der **ganze Server** zurück |
-| `pg_dumpall` um 3:30 | **nicht diese App** — nur die vier Postgres-DBs | — |
+| `sqlite`-Sicherung um 3:45 | die Datenbank dieser App, aus dem Volume heraus | einzelner Stand |
+| restic auf eine Hetzner Storage Box | ganzer Server, off-site | Datei oder Verzeichnis, nicht nur alles |
+| `pg_dumpall` um 3:30 | **nicht diese App** — nur die sechs Postgres-DBs | — |
+
+> **Das Hetzner-Image mit seinen sieben Slots stand hier bis zum 16. August und gibt
+> es nicht mehr.** Es fiel mit dem Anbieterwechsel am 15. August weg; die Off-Site-Rolle
+> hat seit dem 11. August restic. Der Unterschied ist keine Formsache: das Image
+> konnte nur den *ganzen Server* zurückholen, restic eine einzelne Datei.
 
 Details zu den beiden serverweiten Schichten:
-[DEPLOYMENT.md, Abschnitt 7](../../optimize-hetzner/DEPLOYMENT.md#7-backup-und-restore).
+[DEPLOYMENT.md, Abschnitt 7](../../platform/DEPLOYMENT.md#7-backup-und-restore).
 
 ---
 
@@ -289,14 +295,14 @@ widersprüchlichen Ständen. Lokal übernimmt `frontend/.env.local` dieselbe Rol
 Vorlage ist `frontend/.env.example`.
 
 Welche Angaben rechtlich verpflichtend sind, steht in
-[NEUE-APP.md, Abschnitt 3](../../optimize-hetzner/NEUE-APP.md#3-impressum-und-datenschutz).
+[NEUE-APP.md, Abschnitt 3](../../platform/NEUE-APP.md#3-impressum-und-datenschutz).
 
 ---
 
 ## SQLite-Einstellungen
 
 Die App bleibt bewusst bei SQLite: 20 MB, ein Schreiber, keine Nebenläufigkeit —
-der Zweig aus dem [Entscheidungsbaum](../../optimize-hetzner/ARCHITEKTUR.md#3-entscheidungsbaum-wo-liegen-die-daten).
+der Zweig aus dem [Entscheidungsbaum](../../platform/ARCHITEKTUR.md#3-entscheidungsbaum-wo-liegen-die-daten).
 Zwei Einstellungen in `config/database.php` sorgen dafür, dass das auch unter
 parallelen Requests von frankenphp trägt:
 
